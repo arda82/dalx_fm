@@ -5,6 +5,7 @@
 // tahu kapan harus refresh — dia dengar event FolderOpened lewat
 // event bus (lihat ARCHITECTURE.md bagian 3).
 
+import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/events/event_bus.dart';
 import '../../core/events/event_catalog.dart';
