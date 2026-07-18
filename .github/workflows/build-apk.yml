@@ -11,6 +11,12 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    # HAS_KEYSTORE dipakai step "Setup signing" untuk cek apakah
+    # secret KEYSTORE_BASE64 sudah diisi, tanpa membaca `secrets`
+    # langsung di kondisi `if` (yang tidak didukung GitHub Actions).
+    env:
+      HAS_KEYSTORE: ${{ secrets.KEYSTORE_BASE64 != '' }}
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -47,8 +53,13 @@ jobs:
       # Signing release: begitu keystore & GitHub Secrets sudah
       # disiapkan (lihat catatan di bawah), langkah ini otomatis
       # menulis key.properties yang dibaca build.gradle.
+      #
+      # Catatan teknis: kondisi `if` pada step GitHub Actions tidak
+      # boleh membaca `secrets` secara langsung (itu penyebab error
+      # "Unrecognized named-value: 'secrets'") — jadi secret dioper
+      # dulu lewat `env` di level job, baru dicek pakai `env.` di sini.
       - name: Setup signing (kalau secrets tersedia)
-        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
+        if: ${{ env.HAS_KEYSTORE == 'true' }}
         run: |
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > android/app/dalx-release.jks
           cat <<EOF > android/key.properties
