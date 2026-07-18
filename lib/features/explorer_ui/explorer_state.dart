@@ -48,7 +48,10 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
     // explorer_ui cukup dengar event FolderOpened — tidak perlu tahu
     // modul mana yang memicunya (bisa file_engine, bisa nanti dari
     // drawer, dst).
-    eventBus.stream.whereType<FolderOpened>().listen((event) {
+    // whereEventType<T>() adalah extension custom DalX (lihat
+    // core/events/event_bus.dart) — Dart tidak punya Stream.whereType
+    // bawaan seperti Iterable.whereType.
+    eventBus.stream.whereEventType<FolderOpened>().listen((event) {
       _syncFromCurrentFolder();
     });
   }
