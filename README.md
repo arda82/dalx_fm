@@ -32,6 +32,24 @@ Untuk build APK release:
 flutter build apk --release
 ```
 
+## Build Otomatis (GitHub Actions)
+
+`.github/workflows/build-apk.yml` otomatis build APK setiap push ke
+`main`, atau bisa dipicu manual lewat tab **Actions** di GitHub
+(workflow_dispatch). Hasil APK muncul sebagai artifact yang bisa
+diunduh dari halaman run tersebut.
+
+Signing release (pakai keystore asli, bukan debug keys) baru aktif
+kalau GitHub Secrets berikut sudah diisi di Settings repo:
+
+- `KEYSTORE_BASE64` — file `.jks` yang di-encode base64
+- `KEYSTORE_PASSWORD`
+- `KEY_PASSWORD`
+- `KEY_ALIAS`
+
+Sebelum secrets ini disiapkan, workflow tetap jalan dan build APK
+pakai debug signing — cukup untuk testing, belum untuk rilis publik.
+
 ## Dokumen Acuan
 
 - `ARCHITECTURE.md` — arsitektur lengkap, aturan komunikasi antar

@@ -1,9 +1,10 @@
-
 name: Build APK
 
+# Build otomatis tiap push ke main, atau manual lewat tab Actions
+# (workflow_dispatch) kalau mau build tanpa push dulu.
 on:
   push:
-    branches: [ main, master ]
+    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -11,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout repo
         uses: actions/checkout@v4
 
       - name: Setup Java
@@ -25,71 +26,44 @@ jobs:
         with:
           flutter-version: '3.29.3'
           channel: 'stable'
+          cache: true
 
-      - name: Set version otomatis
-        run: |
-          # Format: MAJOR.MINOR.PATCH+BUILD
-          # MAJOR di-hardcode (ubah manual di baris ini kalau ada rilis besar berikutnya)
-          # MINOR = run_number / 10, PATCH = run_number % 10 (rollover otomatis tiap 10 build)
-          # BUILD (setelah +) = run_number asli, wajib selalu naik untuk versionCode Android
-          MAJOR=2
-          RUN_NUM=${{ github.run_number }}
-          MINOR=$((RUN_NUM / 10))
-          PATCH=$((RUN_NUM % 10))
-          NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}+${RUN_NUM}"
-          echo "Version: $NEW_VERSION"
-          sed -i "s/^version: .*/version: ${NEW_VERSION}/" pubspec.yaml
-          cat pubspec.yaml | grep version
-          # Simpan versi tampilan (tanpa +BUILD) untuk dipakai di step-step berikutnya
-          echo "APP_VERSION=${MAJOR}.${MINOR}.${PATCH}" >> $GITHUB_ENV
-
-      - name: Get dependencies
+      - name: Ambil dependency
         run: flutter pub get
 
-      - name: Decode keystore
+      # Versi APK ikut nomor run GitHub Actions, biar tiap build
+      # punya versionCode unik tanpa perlu diketik manual tiap kali.
+      # Skema: 0.0.<run_number> — sesuaikan kalau nanti pindah ke
+      # skema MAJOR.MINOR.PATCH seperti TaniLog.
+      - name: Set nomor versi build
         run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > android/app/tanilog-release.keystore
+          echo "Build number: ${{ github.run_number }}"
+          sed -i "s/^version: .*/version: 0.0.${{ github.run_number }}+${{ github.run_number }}/" pubspec.yaml
+          cat pubspec.yaml | grep version
 
-      - name: Create key.properties
+      - name: Analisis kode (non-blocking)
+        run: flutter analyze || true
+
+      # Signing release: begitu keystore & GitHub Secrets sudah
+      # disiapkan (lihat catatan di bawah), langkah ini otomatis
+      # menulis key.properties yang dibaca build.gradle.
+      - name: Setup signing (kalau secrets tersedia)
+        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
         run: |
-          cat > android/key.properties <<EOF
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > android/app/dalx-release.jks
+          cat <<EOF > android/key.properties
           storePassword=${{ secrets.KEYSTORE_PASSWORD }}
           keyPassword=${{ secrets.KEY_PASSWORD }}
           keyAlias=${{ secrets.KEY_ALIAS }}
-          storeFile=tanilog-release.keystore
+          storeFile=dalx-release.jks
           EOF
 
-      - name: Build APK release (split per ABI)
-        run: flutter build apk --release --split-per-abi
+      - name: Build APK (release)
+        run: flutter build apk --release
 
-      - name: Rename APKs
-        run: |
-          cd build/app/outputs/flutter-apk
-          mv app-arm64-v8a-release.apk       TaniLog-v${{ env.APP_VERSION }}-arm64.apk
-          mv app-armeabi-v7a-release.apk     TaniLog-v${{ env.APP_VERSION }}-armv7.apk
-          mv app-x86_64-release.apk          TaniLog-v${{ env.APP_VERSION }}-x86_64.apk
-          ls -lh *.apk
-
-      - name: Upload APK artifacts
+      - name: Upload APK sebagai artifact
         uses: actions/upload-artifact@v4
         with:
-          name: TaniLog-v${{ env.APP_VERSION }}
-          path: build/app/outputs/flutter-apk/TaniLog-v${{ env.APP_VERSION }}-*.apk
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ env.APP_VERSION }}
-          name: "TaniLog v${{ env.APP_VERSION }}"
-          files: build/app/outputs/flutter-apk/TaniLog-v${{ env.APP_VERSION }}-*.apk
-          body: |
-            ## 🌾 TaniLog v${{ env.APP_VERSION }}
-
-            Build otomatis dari GitHub Actions.
-
-            **Pilih APK sesuai HP:**
-            - `arm64.apk` → HP modern (2018 ke atas, hampir semua HP Android saat ini). **Pilih ini kalau ragu.**
-            - `armv7.apk` → HP lama/32-bit.
-            - `x86_64.apk` → emulator/tablet Intel (jarang dipakai).
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: dalx-release-${{ github.run_number }}
+          path: build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 30
