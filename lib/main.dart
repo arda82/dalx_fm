@@ -1,121 +1,137 @@
+// main.dart
+//
+// Eksekutor DalX. Tanggung jawabnya cuma: setup Riverpod, tentukan
+// tema, dan arahkan ke halaman pertama (cek permission dulu, baru
+// Explorer). Logic sesungguhnya ada di features/ masing-masing.
+
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'core/permissions/permission_manager.dart';
+import 'features/explorer_ui/explorer_screen.dart';
 
 void main() {
-  runApp(const MyApp());
+  runApp(const ProviderScope(child: DalXApp()));
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+// Root Internal Storage Android standar. Untuk Sub-Fase 0a ini masih
+// hardcoded; jadi bagian dari Settings > Layar Awal begitu Sub-Fase
+// 0b/Fase 7 berjalan.
+const _internalStorageRoot = '/storage/emulated/0';
 
-  // This widget is the root of your application.
+class DalXApp extends StatelessWidget {
+  const DalXApp({super.key});
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
-      theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: .fromSeed(seedColor: Colors.deepPurple),
+      title: 'DalX',
+      debugShowCheckedModeBanner: false,
+      theme: _buildTheme(Brightness.light),
+      darkTheme: _buildTheme(Brightness.dark),
+      themeMode: ThemeMode.system,
+      home: const _PermissionGate(),
+    );
+  }
+
+  ThemeData _buildTheme(Brightness brightness) {
+    const dalxAccent = Color(0xFF0A84FF);
+    return ThemeData(
+      brightness: brightness,
+      useMaterial3: true,
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: dalxAccent,
+        brightness: brightness,
       ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+      fontFamily: 'Poppins', // aset font ditambahkan saat siap
     );
   }
 }
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
+/// Cek & minta izin storage sebelum masuk ke Explorer. Ini "pintu
+/// masuk" app — tanpa izin ini, DalX tidak bisa berfungsi sama
+/// sekali (lihat daftar fitur core: akses & r/w hidden files).
+class _PermissionGate extends StatefulWidget {
+  const _PermissionGate();
 
   @override
-  State<MyHomePage> createState() => _MyHomePageState();
+  State<_PermissionGate> createState() => _PermissionGateState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
+class _PermissionGateState extends State<_PermissionGate> {
+  final _permissionManager = PermissionManager();
+  bool _isChecking = true;
+  bool _isGranted = false;
 
-  void _incrementCounter() {
+  @override
+  void initState() {
+    super.initState();
+    _checkPermission();
+  }
+
+  Future<void> _checkPermission() async {
+    final granted = await _permissionManager.hasStorageAccess();
     setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
+      _isGranted = granted;
+      _isChecking = false;
+    });
+  }
+
+  Future<void> _requestPermission() async {
+    setState(() => _isChecking = true);
+    final granted = await _permissionManager.requestStorageAccess();
+    setState(() {
+      _isGranted = granted;
+      _isChecking = false;
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
+    if (_isChecking) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_isGranted) {
+      return const ExplorerScreen(rootPath: _internalStorageRoot);
+    }
+
     return Scaffold(
-      appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
-      ),
       body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: .center,
-          children: [
-            const Text('You have pushed the button this many times:'),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
-          ],
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.folder_open, size: 64, color: Color(0xFF0A84FF)),
+              const SizedBox(height: 16),
+              const Text(
+                'DalX butuh izin akses penyimpanan',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Untuk mengelola semua file kamu, termasuk file '
+                'tersembunyi, DalX perlu izin akses penyimpanan penuh.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey),
+              ),
+              const SizedBox(height: 24),
+              FilledButton(
+                onPressed: _requestPermission,
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF0A84FF),
+                ),
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  child: Text('Berikan Izin'),
+                ),
+              ),
+            ],
+          ),
         ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
       ),
     );
   }
