@@ -4,12 +4,11 @@
 // Layar Awal, Internal Storage, SD Card, USB OTG, Favorites,
 // Task Queue, Bersihkan Cache (aksi langsung), Settings, About.
 //
-// Untuk Sub-Fase 0a: hanya Layar Awal dan Internal Storage yang
-// benar-benar berfungsi (buka folder). Item lain tampil tapi belum
-// aktif — supaya struktur visual sudah lengkap sejak awal, isinya
-// menyusul di sub-fase berikutnya.
+// Sub-Fase 0b: Internal Storage dan Task Queue aktif. SD Card, USB
+// OTG, Favorites, Settings menyusul di fase berikutnya sesuai roadmap.
 
 import 'package:flutter/material.dart';
+import '../task_queue/task_queue_screen.dart';
 import 'explorer_screen.dart';
 
 class AppDrawer extends StatelessWidget {
@@ -33,8 +32,8 @@ class AppDrawer extends StatelessWidget {
                     label: 'Layar Awal',
                     active: true,
                     onTap: () {
-                      // Sub-Fase 0a: arahkan ke overview minimal.
-                      // Overview lengkap (SD Card/USB OTG/RAM) di 0b.
+                      // Storage Overview lengkap (SD Card/USB
+                      // OTG/RAM) menyusul di iterasi 0b berikutnya.
                       Navigator.pop(context);
                     },
                   ),
@@ -72,7 +71,13 @@ class AppDrawer extends StatelessWidget {
                   _DrawerTile(
                     icon: Icons.download_outlined,
                     label: 'Task Queue',
-                    disabled: true, // aktif di Sub-Fase 0b
+                    onTap: () {
+                      Navigator.pop(context);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const TaskQueueScreen()),
+                      );
+                    },
                   ),
                   _DrawerTile(
                     icon: Icons.cleaning_services_outlined,

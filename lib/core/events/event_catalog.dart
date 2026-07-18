@@ -57,18 +57,103 @@ class StorageMounted extends DalXEvent {
 }
 
 // ============================================================
-// SUB-FASE 0b DAN SETERUSNYA — BELUM DIIMPLEMENTASI
+// SUB-FASE 0b — File Manager Fungsional
+// ============================================================
+
+/// Dipicu saat file/folder baru berhasil dibuat (New Folder/New File).
+///
+/// Dibawa: [path] — path lengkap item baru, [isFolder] — tipe item.
+///
+/// Didengarkan oleh: explorer_ui (refresh daftar file)
+/// Dipicu oleh: file_engine
+class FileCreated extends DalXEvent {
+  final String path;
+  final bool isFolder;
+  const FileCreated(this.path, {required this.isFolder});
+}
+
+/// Dipicu saat file/folder berhasil dihapus (lewat Task Queue).
+///
+/// Dibawa: [paths] — daftar path yang dihapus (bisa multi-select).
+///
+/// Didengarkan oleh: explorer_ui (refresh daftar file)
+/// Dipicu oleh: task_queue, setelah operasi delete selesai
+class FileDeleted extends DalXEvent {
+  final List<String> paths;
+  const FileDeleted(this.paths);
+}
+
+/// Dipicu saat file/folder berhasil di-rename.
+///
+/// Dibawa: [oldPath], [newPath].
+///
+/// Didengarkan oleh: explorer_ui (refresh daftar file)
+/// Dipicu oleh: file_engine
+class FileRenamed extends DalXEvent {
+  final String oldPath;
+  final String newPath;
+  const FileRenamed(this.oldPath, this.newPath);
+}
+
+/// Dipicu saat file/folder berhasil dipindah (Cut-Paste), lewat Task Queue.
+///
+/// Dibawa: [sourcePaths] — path asal (bisa multi), [destinationPath]
+/// — folder tujuan.
+///
+/// Didengarkan oleh: explorer_ui (refresh daftar file di folder asal
+/// maupun tujuan kalau sedang dibuka)
+/// Dipicu oleh: task_queue, setelah operasi move selesai
+class FileMoved extends DalXEvent {
+  final List<String> sourcePaths;
+  final String destinationPath;
+  const FileMoved(this.sourcePaths, this.destinationPath);
+}
+
+/// Dipicu saat file/folder berhasil disalin (Copy-Paste), lewat Task Queue.
+///
+/// Dibawa: [sourcePaths] — path asal (bisa multi), [destinationPath]
+/// — folder tujuan.
+///
+/// Didengarkan oleh: explorer_ui (refresh daftar file di folder tujuan
+/// kalau sedang dibuka)
+/// Dipicu oleh: task_queue, setelah operasi copy selesai
+class FileCopied extends DalXEvent {
+  final List<String> sourcePaths;
+  final String destinationPath;
+  const FileCopied(this.sourcePaths, this.destinationPath);
+}
+
+/// Dipicu berkala selama sebuah task di Task Queue berjalan, untuk
+/// update progress bar.
+///
+/// Dibawa: [taskId] — id unik task, [progress] — 0.0 s/d 1.0.
+///
+/// Didengarkan oleh: task_queue UI (layar Task Queue)
+/// Dipicu oleh: task_queue, selama eksekusi operasi
+class TaskProgress extends DalXEvent {
+  final String taskId;
+  final double progress;
+  const TaskProgress(this.taskId, this.progress);
+}
+
+/// Dipicu saat sebuah task selesai, baik sukses maupun gagal.
+///
+/// Dibawa: [taskId], [success], [errorMessage] (null kalau sukses).
+///
+/// Didengarkan oleh: task_queue UI, explorer_ui (untuk trigger refresh
+/// setelah operasi selesai)
+/// Dipicu oleh: task_queue
+class TaskCompleted extends DalXEvent {
+  final String taskId;
+  final bool success;
+  final String? errorMessage;
+  const TaskCompleted(this.taskId, {required this.success, this.errorMessage});
+}
+
+// ============================================================
+// FASE 1 DAN SETERUSNYA — BELUM DIIMPLEMENTASI
 // ============================================================
 //
-// Didaftarkan di sini sebagai catatan cakupan, TAPI belum
-// diimplementasikan — jangan dipakai sebelum sub-fase terkait
-// benar-benar berjalan:
+// Didaftarkan sebagai catatan cakupan, belum diimplementasikan:
 //
-//   - FileCreated     (Sub-Fase 0b: New Folder / New File)
-//   - FileDeleted     (Sub-Fase 0b: Delete, lewat Task Queue)
-//   - FileRenamed     (Sub-Fase 0b: Rename)
-//   - FileMoved       (Sub-Fase 0b: Cut-Paste, lewat Task Queue)
-//   - FileCopied      (Sub-Fase 0b: Copy-Paste, lewat Task Queue)
-//   - StorageRemoved  (Sub-Fase 0b: kebalikan StorageMounted)
-//   - TaskProgress    (Sub-Fase 0b: update progress Task Queue)
-//   - TaskCompleted   (Sub-Fase 0b: task selesai, sukses/gagal)
+//   - StorageRemoved  (kebalikan StorageMounted, Fase 1/8 - USB OTG)
