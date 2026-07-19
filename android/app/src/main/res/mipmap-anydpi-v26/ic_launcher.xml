@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Adaptive icon DalX (Android 8+) — pakai aset asli dari brand
+     board (foreground: logo folder+D+panah, background: warna solid
+     navy #0D1B2A), bukan lagi placeholder warna polos. -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@drawable/ic_launcher_background" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+</adaptive-icon>

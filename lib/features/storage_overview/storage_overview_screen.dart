@@ -11,53 +11,96 @@
 // angka byte asli, bukan diketik manual — supaya progress bar dan
 // teks selalu sinkron.
 
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/device_info/device_info_manager.dart';
 import '../explorer_ui/app_drawer.dart';
 
 const _dalxAccent = Color(0xFF0A84FF);
 
-class StorageOverviewScreen extends ConsumerWidget {
+// Jendela waktu untuk pola "tekan sekali lagi untuk keluar" — tekan
+// back kedua harus terjadi dalam rentang ini, kalau tidak dianggap
+// tekan pertama yang baru lagi.
+const _exitPressWindow = Duration(seconds: 2);
+
+class StorageOverviewScreen extends ConsumerStatefulWidget {
   const StorageOverviewScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return Scaffold(
-      appBar: AppBar(
-        leading: Builder(
-          builder: (context) => IconButton(
-            icon: const Icon(Icons.menu),
-            onPressed: () => Scaffold.of(context).openDrawer(),
-          ),
+  ConsumerState<StorageOverviewScreen> createState() => _StorageOverviewScreenState();
+}
+
+class _StorageOverviewScreenState extends ConsumerState<StorageOverviewScreen> {
+  DateTime? _lastBackPress;
+
+  // StorageOverviewScreen adalah root Navigator (halaman pertama saat
+  // app dibuka, lihat main.dart) — jadi ini satu-satunya tempat yang
+  // perlu pola "tekan dua kali untuk keluar". Layar lain (Explorer,
+  // Task Queue, dll) di-push di atas ini, jadi back mereka otomatis
+  // kembali ke sini lebih dulu sebelum sempat memicu exit.
+  void _handleBackPress() {
+    final now = DateTime.now();
+    final isSecondPress = _lastBackPress != null && now.difference(_lastBackPress!) < _exitPressWindow;
+
+    if (isSecondPress) {
+      SystemNavigator.pop();
+    } else {
+      _lastBackPress = now;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Tekan sekali lagi untuk keluar'),
+          duration: _exitPressWindow,
         ),
-        title: const Text('Storage'),
-      ),
-      drawer: const AppDrawer(),
-      body: FutureBuilder(
-        future: _loadAll(ref),
-        builder: (context, snapshot) {
-          if (!snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator(color: _dalxAccent));
-          }
-          final data = snapshot.data!;
-          return ListView(
-            padding: const EdgeInsets.all(14),
-            children: [
-              _StorageCard(
-                icon: Icons.smartphone_outlined,
-                label: 'Internal Storage',
-                info: data.storage,
-              ),
-              const SizedBox(height: 12),
-              const _DisabledStorageCard(icon: Icons.sd_card_outlined, label: 'SD Card'),
-              const SizedBox(height: 12),
-              const _DisabledStorageCard(icon: Icons.usb_outlined, label: 'USB OTG', subtitle: 'Tidak terpasang'),
-              const SizedBox(height: 12),
-              _RamCard(info: data.ram),
-            ],
-          );
-        },
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        _handleBackPress();
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          leading: Builder(
+            builder: (context) => IconButton(
+              icon: const Icon(Icons.menu),
+              onPressed: () => Scaffold.of(context).openDrawer(),
+            ),
+          ),
+          title: const Text('Storage'),
+        ),
+        drawer: const AppDrawer(),
+        body: FutureBuilder(
+          future: _loadAll(ref),
+          builder: (context, snapshot) {
+            if (!snapshot.hasData) {
+              return const Center(child: CircularProgressIndicator(color: _dalxAccent));
+            }
+            final data = snapshot.data!;
+            return ListView(
+              padding: const EdgeInsets.all(14),
+              children: [
+                _StorageCard(
+                  icon: Icons.smartphone_outlined,
+                  label: 'Internal Storage',
+                  info: data.storage,
+                ),
+                const SizedBox(height: 12),
+                const _DisabledStorageCard(icon: Icons.sd_card_outlined, label: 'SD Card'),
+                const SizedBox(height: 12),
+                const _DisabledStorageCard(icon: Icons.usb_outlined, label: 'USB OTG', subtitle: 'Tidak terpasang'),
+                const SizedBox(height: 12),
+                _RamCard(info: data.ram),
+              ],
+            );
+          },
+        ),
       ),
     );
   }
