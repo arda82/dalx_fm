@@ -7,15 +7,18 @@
 // - Action mode toolbar (saat multi-select): Trash, Copy, Cut,
 //   Rename, titik-tiga (Share, File Info)
 // - Long-press / tap saat sudah select mode untuk multi-select
+//
+// Fase 1: Share (action mode titik-tiga) sekarang aktif pakai
+// share_plus. Open With & Document Picker menyusul.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:share_plus/share_plus.dart';
 import '../../core/models/file_item.dart';
 import '../file_engine/file_engine.dart';
 import '../task_queue/task_queue_screen.dart';
 import 'app_drawer.dart';
 import 'explorer_state.dart';
-import 'file_info_sheet.dart';
 
 const dalxAccent = Color(0xFF0A84FF);
 
@@ -143,28 +146,37 @@ class ExplorerScreen extends ConsumerWidget {
               : null,
         ),
         PopupMenuButton<String>(
-          onSelected: (value) {
-            if (value == 'share') {
-              // Share sheet butuh package share_plus + izin sistem —
-              // menyusul Fase 1 (Android Integration). Untuk sekarang
-              // kasih tahu user alih-alih diam tanpa respons.
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Share menyusul di update berikutnya')),
-              );
-            } else if (value == 'info') {
-              final path = state.selectedPaths.first;
-              final item = state.items.firstWhere((i) => i.path == path);
-              showFileInfoSheet(context, item);
-            }
-          },
-          itemBuilder: (context) => [
-            const PopupMenuItem(value: 'share', child: Text('Share')),
-            if (state.selectedPaths.length == 1)
-              const PopupMenuItem(value: 'info', child: Text('File Info')),
+          onSelected: (value) => _handleActionMenuSelected(context, value, state),
+          itemBuilder: (context) => const [
+            PopupMenuItem(value: 'share', child: Text('Share')),
+            PopupMenuItem(value: 'info', child: Text('File Info')),
           ],
         ),
       ],
     );
+  }
+
+  // Fase 1: Share Sheet via share_plus. Mendukung single & multi-file
+  // (semua item yang sedang terpilih di action mode).
+  Future<void> _handleActionMenuSelected(
+    BuildContext context,
+    String value,
+    ExplorerState state,
+  ) async {
+    if (value == 'share') {
+      final paths = state.selectedPaths.toList();
+      if (paths.isEmpty) return;
+      try {
+        await Share.shareXFiles(paths.map((p) => XFile(p)).toList());
+      } catch (e) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gagal membuka Share: $e')),
+        );
+      }
+    } else if (value == 'info') {
+      // File Info bottom sheet — menyusul di iterasi berikutnya 0b
+    }
   }
 
   // Selalu tanya konfirmasi sebelum hapus — ini perilaku BAKU, tidak
