@@ -9,7 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/permissions/permission_manager.dart';
-import 'features/explorer_ui/explorer_screen.dart';
+import 'features/storage_overview/storage_overview_screen.dart';
 
 void main() {
   // Jaring pengaman crash global — Sub-Fase 0a belum punya Error
@@ -27,11 +27,6 @@ void main() {
     debugPrint('Error tak tertangkap: $error\n$stackTrace');
   });
 }
-
-// Root Internal Storage Android standar. Untuk Sub-Fase 0a ini masih
-// hardcoded; jadi bagian dari Settings > Layar Awal begitu Sub-Fase
-// 0b/Fase 7 berjalan.
-const _internalStorageRoot = '/storage/emulated/0';
 
 class DalXApp extends StatelessWidget {
   const DalXApp({super.key});
@@ -137,7 +132,11 @@ class _PermissionGateState extends State<_PermissionGate> {
     }
 
     if (_isGranted) {
-      return const ExplorerScreen(rootPath: _internalStorageRoot);
+      // Layar Awal (Storage Overview) adalah halaman default saat app
+      // dibuka — bukan Explorer langsung. Lihat ARCHITECTURE.md
+      // bagian 5: "Layar Awal — path dinamis, default ke layar
+      // overview Storage+RAM". Explorer diakses dari drawer.
+      return const StorageOverviewScreen();
     }
 
     return Scaffold(

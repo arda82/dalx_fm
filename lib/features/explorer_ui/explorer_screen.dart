@@ -15,6 +15,7 @@ import '../file_engine/file_engine.dart';
 import '../task_queue/task_queue_screen.dart';
 import 'app_drawer.dart';
 import 'explorer_state.dart';
+import 'file_info_sheet.dart';
 
 const dalxAccent = Color(0xFF0A84FF);
 
@@ -144,14 +145,22 @@ class ExplorerScreen extends ConsumerWidget {
         PopupMenuButton<String>(
           onSelected: (value) {
             if (value == 'share') {
-              // Share sheet — menyusul Fase 1 (Android Integration)
+              // Share sheet butuh package share_plus + izin sistem —
+              // menyusul Fase 1 (Android Integration). Untuk sekarang
+              // kasih tahu user alih-alih diam tanpa respons.
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Share menyusul di update berikutnya')),
+              );
             } else if (value == 'info') {
-              // File Info bottom sheet — menyusul di iterasi berikutnya 0b
+              final path = state.selectedPaths.first;
+              final item = state.items.firstWhere((i) => i.path == path);
+              showFileInfoSheet(context, item);
             }
           },
-          itemBuilder: (context) => const [
-            PopupMenuItem(value: 'share', child: Text('Share')),
-            PopupMenuItem(value: 'info', child: Text('File Info')),
+          itemBuilder: (context) => [
+            const PopupMenuItem(value: 'share', child: Text('Share')),
+            if (state.selectedPaths.length == 1)
+              const PopupMenuItem(value: 'info', child: Text('File Info')),
           ],
         ),
       ],

@@ -8,6 +8,7 @@
 // OTG, Favorites, Settings menyusul di fase berikutnya sesuai roadmap.
 
 import 'package:flutter/material.dart';
+import '../storage_overview/storage_overview_screen.dart';
 import '../task_queue/task_queue_screen.dart';
 import 'explorer_screen.dart';
 
@@ -32,9 +33,11 @@ class AppDrawer extends StatelessWidget {
                     label: 'Layar Awal',
                     active: true,
                     onTap: () {
-                      // Storage Overview lengkap (SD Card/USB
-                      // OTG/RAM) menyusul di iterasi 0b berikutnya.
                       Navigator.pop(context);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const StorageOverviewScreen()),
+                      );
                     },
                   ),
                   _DrawerTile(
