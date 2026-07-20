@@ -2,10 +2,12 @@ package com.dalx.app
 
 import android.app.ActivityManager
 import android.content.Context
+import android.content.Intent
 import android.os.Environment
 import android.os.StatFs
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 
 // MainActivity — jembatan antara sistem Android dan Flutter engine.
@@ -15,21 +17,29 @@ import io.flutter.plugin.common.MethodChannel
 // Android tidak menemukan class Activity yang direferensikan dan
 // app crash instan saat dibuka.
 //
-// Selain itu, class ini juga menjadi tempat platform channel DalX:
-// dart:io tidak punya akses langsung ke StatFs (kapasitas storage)
-// atau ActivityManager (info RAM) — itu API khusus Android, jadi
-// perlu dijembatani dari sini ke kode Dart lewat MethodChannel.
-// Dipilih bikin channel sendiri (bukan pakai package pihak ketiga)
-// karena banyak package storage-info di pub.dev kurang terpelihara —
-// ini konsisten dengan pola yang sudah dipakai untuk Permission
-// Manager (SAF, MANAGE_EXTERNAL_STORAGE).
+// Channel yang hidup di sini:
+// - "com.dalx.app/device_info" (Sub-Fase 0a) — StatFs (storage) &
+//   ActivityManager (RAM). dart:io tidak punya akses langsung ke
+//   API ini, jadi dijembatani manual, bukan pakai package pihak
+//   ketiga (banyak package storage-info di pub.dev kurang terpelihara).
+// - NativeBridge.CHANNEL "com.dalx.app/native_bridge" (Fase 1) —
+//   Open With, Install/Uninstall APK, Media Scanner, Document
+//   Picker. Logic-nya di NativeBridge.kt, MainActivity cuma jadi
+//   router tipis ke situ.
+// - "com.dalx.app/intent_stream" (Fase 1) — EventChannel buat kirim
+//   intent baru ke Dart saat app SUDAH berjalan (onNewIntent), mis.
+//   user share file lagi ke DalX tanpa nutup app dulu.
 class MainActivity : FlutterActivity() {
-    private val channelName = "com.dalx.app/device_info"
+    private val deviceInfoChannelName = "com.dalx.app/device_info"
+
+    private lateinit var nativeBridge: NativeBridge
+    private var intentEventSink: EventChannel.EventSink? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
+        // ---------------- device_info (Sub-Fase 0a) ----------------
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, deviceInfoChannelName)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "getStorageInfo" -> result.success(getStorageInfo())
@@ -37,6 +47,34 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+
+        // ---------------- native_bridge (Fase 1) ----------------
+        nativeBridge = NativeBridge(this)
+
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            NativeBridge.CHANNEL
+        ).setMethodCallHandler(nativeBridge)
+
+        EventChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "com.dalx.app/intent_stream"
+        ).setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                intentEventSink = events
+            }
+            override fun onCancel(arguments: Any?) {
+                intentEventSink = null
+            }
+        })
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (::nativeBridge.isInitialized) {
+            intentEventSink?.success(nativeBridge.resolveIntentToMap(intent))
+        }
     }
 
     /**

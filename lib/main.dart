@@ -1,21 +1,20 @@
 // main.dart
 //
-// Eksekutor DalX. Tanggung jawabnya cuma: setup Riverpod, tentukan
-// tema, dan arahkan ke halaman pertama (cek permission dulu, baru
-// Explorer). Logic sesungguhnya ada di features/ masing-masing.
+// Eksekutor DalX. Tanggung jawabnya: setup Riverpod, tema, permission
+// gate, lalu arahkan ke Explorer — kalau DalX dibuka lewat intent
+// eksternal (Open With, Share, Document Picker), arahkan sesuai itu.
 
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/permissions/permission_manager.dart';
-import 'features/storage_overview/storage_overview_screen.dart';
+import 'core/native_bridge/intent_bridge.dart';
+import 'core/native_bridge/native_bridge.dart';
+import 'features/explorer_ui/explorer_screen.dart';
+import 'features/media_scanner/media_scanner_listener.dart';
 
 void main() {
-  // Jaring pengaman crash global — Sub-Fase 0a belum punya Error
-  // Logging (itu baru masuk Fase 7), tapi ini minimal mencegah app
-  // mati diam-diam tanpa jejak sama sekali kalau ada exception
-  // tak terduga di luar yang sudah ditangani lokal.
   FlutterError.onError = (details) {
     FlutterError.presentError(details);
     debugPrint('FlutterError tertangkap: ${details.exception}');
@@ -27,6 +26,8 @@ void main() {
     debugPrint('Error tak tertangkap: $error\n$stackTrace');
   });
 }
+
+const _internalStorageRoot = '/storage/emulated/0';
 
 class DalXApp extends StatelessWidget {
   const DalXApp({super.key});
@@ -48,26 +49,20 @@ class DalXApp extends StatelessWidget {
     return ThemeData(
       brightness: brightness,
       useMaterial3: true,
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: dalxAccent,
-        brightness: brightness,
-      ),
-      fontFamily: 'Poppins', // aset font ditambahkan saat siap
+      colorScheme: ColorScheme.fromSeed(seedColor: dalxAccent, brightness: brightness),
+      fontFamily: 'Poppins',
     );
   }
 }
 
-/// Cek & minta izin storage sebelum masuk ke Explorer. Ini "pintu
-/// masuk" app — tanpa izin ini, DalX tidak bisa berfungsi sama
-/// sekali (lihat daftar fitur core: akses & r/w hidden files).
-class _PermissionGate extends StatefulWidget {
+class _PermissionGate extends ConsumerStatefulWidget {
   const _PermissionGate();
 
   @override
-  State<_PermissionGate> createState() => _PermissionGateState();
+  ConsumerState<_PermissionGate> createState() => _PermissionGateState();
 }
 
-class _PermissionGateState extends State<_PermissionGate> {
+class _PermissionGateState extends ConsumerState<_PermissionGate> {
   final _permissionManager = PermissionManager();
   bool _isChecking = true;
   bool _isGranted = false;
@@ -80,10 +75,6 @@ class _PermissionGateState extends State<_PermissionGate> {
   }
 
   Future<void> _checkPermission() async {
-    // Dibungkus try-catch: kalau permission_handler melempar exception
-    // (mis. plugin belum ter-register dengan benar di sisi native),
-    // app akan menampilkan pesan error alih-alih crash diam-diam
-    // tanpa keterangan sama sekali.
     try {
       final granted = await _permissionManager.hasStorageAccess();
       if (!mounted) return;
@@ -126,17 +117,15 @@ class _PermissionGateState extends State<_PermissionGate> {
   @override
   Widget build(BuildContext context) {
     if (_isChecking) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     if (_isGranted) {
-      // Layar Awal (Storage Overview) adalah halaman default saat app
-      // dibuka — bukan Explorer langsung. Lihat ARCHITECTURE.md
-      // bagian 5: "Layar Awal — path dinamis, default ke layar
-      // overview Storage+RAM". Explorer diakses dari drawer.
-      return const StorageOverviewScreen();
+      // Aktifkan Media Scanner listener sekali di sini — dia dengar
+      // event lewat event bus selama app hidup (lihat
+      // media_scanner_listener.dart).
+      ref.watch(mediaScannerListenerProvider);
+      return _RouteAfterPermission(intentBridge: ref.watch(intentBridgeProvider));
     }
 
     return Scaffold(
@@ -163,9 +152,7 @@ class _PermissionGateState extends State<_PermissionGate> {
               const SizedBox(height: 24),
               FilledButton(
                 onPressed: _requestPermission,
-                style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFF0A84FF),
-                ),
+                style: FilledButton.styleFrom(backgroundColor: const Color(0xFF0A84FF)),
                 child: const Padding(
                   padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                   child: Text('Berikan Izin'),
@@ -191,5 +178,67 @@ class _PermissionGateState extends State<_PermissionGate> {
         ),
       ),
     );
+  }
+}
+
+/// Baca intent awal (kalau DalX dibuka dari Open With/Share/Document
+/// Picker), lalu arahkan ke Explorer dengan konfigurasi yang sesuai.
+class _RouteAfterPermission extends StatefulWidget {
+  final IntentBridge intentBridge;
+  const _RouteAfterPermission({required this.intentBridge});
+
+  @override
+  State<_RouteAfterPermission> createState() => _RouteAfterPermissionState();
+}
+
+class _RouteAfterPermissionState extends State<_RouteAfterPermission> {
+  bool _isResolving = true;
+  IncomingIntent? _intent;
+
+  @override
+  void initState() {
+    super.initState();
+    _resolve();
+  }
+
+  Future<void> _resolve() async {
+    try {
+      final intent = await widget.intentBridge.getInitialIntent();
+      if (!mounted) return;
+      setState(() {
+        _intent = intent;
+        _isResolving = false;
+      });
+    } catch (e) {
+      debugPrint('Gagal baca initial intent: $e');
+      if (!mounted) return;
+      setState(() => _isResolving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isResolving) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
+    final intent = _intent;
+    if (intent == null || intent.action == IncomingIntentAction.none) {
+      return const ExplorerScreen(rootPath: _internalStorageRoot);
+    }
+
+    if (intent.action == IncomingIntentAction.getContent) {
+      return const ExplorerScreen(rootPath: _internalStorageRoot, pickMode: true);
+    }
+
+    if (intent.paths.isNotEmpty) {
+      final firstPath = intent.paths.first;
+      final parentPath = firstPath.contains('/')
+          ? firstPath.substring(0, firstPath.lastIndexOf('/'))
+          : _internalStorageRoot;
+      return ExplorerScreen(rootPath: parentPath);
+    }
+
+    return const ExplorerScreen(rootPath: _internalStorageRoot);
   }
 }

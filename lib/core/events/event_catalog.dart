@@ -64,7 +64,8 @@ class StorageMounted extends DalXEvent {
 ///
 /// Dibawa: [path] — path lengkap item baru, [isFolder] — tipe item.
 ///
-/// Didengarkan oleh: explorer_ui (refresh daftar file)
+/// Didengarkan oleh: explorer_ui (refresh daftar file), media_scanner
+/// (Fase 1, trigger scan kalau filenya media)
 /// Dipicu oleh: file_engine
 class FileCreated extends DalXEvent {
   final String path;
@@ -101,7 +102,7 @@ class FileRenamed extends DalXEvent {
 /// — folder tujuan.
 ///
 /// Didengarkan oleh: explorer_ui (refresh daftar file di folder asal
-/// maupun tujuan kalau sedang dibuka)
+/// maupun tujuan kalau sedang dibuka), media_scanner (Fase 1)
 /// Dipicu oleh: task_queue, setelah operasi move selesai
 class FileMoved extends DalXEvent {
   final List<String> sourcePaths;
@@ -115,7 +116,7 @@ class FileMoved extends DalXEvent {
 /// — folder tujuan.
 ///
 /// Didengarkan oleh: explorer_ui (refresh daftar file di folder tujuan
-/// kalau sedang dibuka)
+/// kalau sedang dibuka), media_scanner (Fase 1)
 /// Dipicu oleh: task_queue, setelah operasi copy selesai
 class FileCopied extends DalXEvent {
   final List<String> sourcePaths;
@@ -151,7 +152,33 @@ class TaskCompleted extends DalXEvent {
 }
 
 // ============================================================
-// FASE 1 DAN SETERUSNYA — BELUM DIIMPLEMENTASI
+// FASE 1 — Android Integration Lanjutan
+// ============================================================
+
+/// Dipicu saat DalX dibuka dari luar lewat file (Open With DalX,
+/// atau share dari app lain yang sudah di-resolve jadi path lokal).
+///
+/// Dibawa: [paths] — satu atau lebih path file yang masuk.
+///
+/// Didengarkan oleh: explorer_ui (arahkan ke folder berisi file)
+/// Dipicu oleh: main.dart, lewat core/native_bridge/intent_bridge.dart
+class ExternalFileOpened extends DalXEvent {
+  final List<String> paths;
+  const ExternalFileOpened(this.paths);
+}
+
+/// Dipicu saat user memilih Install APK dari Explorer.
+///
+/// Dibawa: [path] — path file .apk yang mau di-install.
+///
+/// Dipicu oleh: explorer_ui
+class ApkInstallRequested extends DalXEvent {
+  final String path;
+  const ApkInstallRequested(this.path);
+}
+
+// ============================================================
+// FASE 2 DAN SETERUSNYA — BELUM DIIMPLEMENTASI
 // ============================================================
 //
 // Didaftarkan sebagai catatan cakupan, belum diimplementasikan:

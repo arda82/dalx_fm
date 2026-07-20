@@ -8,13 +8,16 @@
 //   Rename, titik-tiga (Share, File Info)
 // - Long-press / tap saat sudah select mode untuk multi-select
 //
-// Fase 1: Share (action mode titik-tiga) sekarang aktif pakai
-// share_plus. Open With & Document Picker menyusul.
+// Fase 1: Share (action mode titik-tiga) aktif pakai share_plus.
+// Tap file (bukan folder) sekarang aktif juga: Open With, Install
+// APK (deteksi .apk), atau kembalikan file ke app pemanggil kalau
+// DalX dibuka dalam pickMode (Document Picker). Lihat _handleFileTap.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../core/models/file_item.dart';
+import '../../core/native_bridge/native_bridge.dart';
 import '../file_engine/file_engine.dart';
 import '../task_queue/task_queue_screen.dart';
 import 'app_drawer.dart';
@@ -24,8 +27,9 @@ const dalxAccent = Color(0xFF0A84FF);
 
 class ExplorerScreen extends ConsumerWidget {
   final String rootPath;
+  final bool pickMode;
 
-  const ExplorerScreen({super.key, required this.rootPath});
+  const ExplorerScreen({super.key, required this.rootPath, this.pickMode = false});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -60,7 +64,7 @@ class ExplorerScreen extends ConsumerWidget {
             if (!explorerState.isSelectMode) _buildBreadcrumb(explorerState),
             if (!explorerState.isSelectMode) const Divider(height: 1),
             if (notifier.hasPendingPaste) _buildPasteBar(notifier),
-            Expanded(child: _buildFileList(explorerState, notifier)),
+            Expanded(child: _buildFileList(context, ref, explorerState, notifier)),
           ],
         ),
       ),
@@ -282,7 +286,7 @@ class ExplorerScreen extends ConsumerWidget {
 
   // ---------------- File List ----------------
 
-  Widget _buildFileList(ExplorerState state, ExplorerNotifier notifier) {
+  Widget _buildFileList(BuildContext context, WidgetRef ref, ExplorerState state, ExplorerNotifier notifier) {
     if (state.isLoading) {
       return const Center(child: CircularProgressIndicator(color: dalxAccent));
     }
@@ -310,9 +314,9 @@ class ExplorerScreen extends ConsumerWidget {
                 notifier.toggleSelection(item.path);
               } else if (item.isFolder) {
                 notifier.openFolder(item.path);
+              } else {
+                _handleFileTap(context, ref, item.path);
               }
-              // Membuka file (bukan folder) menyusul saat viewer/editor
-              // sudah ada di fase-fase berikutnya.
             },
             onLongPress: () {
               if (!state.isSelectMode) notifier.enterSelectMode(item.path);
@@ -321,6 +325,44 @@ class ExplorerScreen extends ConsumerWidget {
         },
       ),
     );
+  }
+
+  // Fase 1: tap file (bukan folder). Tiga jalur:
+  // - pickMode (DalX dipanggil sebagai Document Picker) → kembalikan
+  //   file terpilih ke app pemanggil lalu tutup DalX
+  // - file .apk → cek izin install, lalu trigger installer sistem
+  // - file lain → Open With (chooser Android biasa)
+  Future<void> _handleFileTap(BuildContext context, WidgetRef ref, String path) async {
+    final nativeBridge = ref.read(nativeBridgeProvider);
+
+    if (pickMode) {
+      await nativeBridge.returnPickedFile(path);
+      return;
+    }
+
+    if (path.toLowerCase().endsWith('.apk')) {
+      final canInstall = await nativeBridge.canInstallPackages();
+      if (!canInstall) {
+        if (!context.mounted) return;
+        final proceed = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Izin diperlukan'),
+            content: const Text('DalX butuh izin install app dari sumber tidak dikenal.'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Batal')),
+              TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Buka Settings')),
+            ],
+          ),
+        );
+        if (proceed == true) await nativeBridge.requestInstallPermission();
+        return;
+      }
+      await nativeBridge.installApk(path);
+      return;
+    }
+
+    await nativeBridge.openWith(path, mimeType: NativeBridge.mimeTypeFor(path));
   }
 }
 
