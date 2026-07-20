@@ -14,17 +14,19 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/events/event_bus.dart';
 import '../../core/events/event_catalog.dart';
 import '../../core/models/file_item.dart';
+import '../../core/native_bridge/native_bridge.dart';
 
 enum SortMode { name, date, size }
 
 class FileEngine {
   final DalXEventBus _eventBus;
+  final NativeBridge _nativeBridge;
   final List<String> _history = [];
 
   bool showHidden = false;
   SortMode sortMode = SortMode.name;
 
-  FileEngine(this._eventBus);
+  FileEngine(this._eventBus, this._nativeBridge);
 
   /// Path folder yang sedang dibuka. Null kalau belum pernah buka
   /// folder sama sekali.
@@ -106,27 +108,37 @@ class FileEngine {
   }
 
   Future<List<FileItem>> _listFolder(Directory dir) async {
-    // Sebagian subfolder (paling sering di dalam Android/data milik
-    // app lain) bisa nolak dibaca meski MANAGE_EXTERNAL_STORAGE aktif
-    // — beberapa OEM (mis. Xiaomi HyperOS) nambahin lapisan restriksi
-    // sendiri per-subfolder di luar standar AOSP. `dir.list().toList()`
-    // versi lama itu ALL-OR-NOTHING: satu entry gagal, seluruh folder
-    // ikut gagal. Di bawah ini entry yang error di-skip, bukan
-    // ngegagalin seluruh listing folder induknya — sama seperti cara
-    // file manager lain (Amaze, Solid Explorer, dll) nanganin ini.
+    // Sebagian folder (paling sering Android/data & Android/obb) bisa
+    // gagal dibaca TOTAL lewat dart:io walau MANAGE_EXTERNAL_STORAGE
+    // aktif — ini bug yang sudah dikonfirmasi tim Flutter sendiri
+    // (flutter/flutter#108232, duplikat #40504): dart:io
+    // Directory.list() melempar "Permission denied, errno=13" khusus
+    // di path itu. File manager native (Amaze, CX File Manager) gak
+    // kena ini karena mereka pakai java.io.File, bukan dart:io.
+    //
+    // Strateginya: coba dart:io dulu (lebih cepat buat kasus normal).
+    // Kalau errornya bikin listing kosong TOTAL (bukan folder yang
+    // memang kosong), fallback ke native Java File API lewat
+    // NativeBridge.
     final entities = <FileSystemEntity>[];
+    var hadStreamError = false;
     final doneCompleter = Completer<void>();
+
     dir.list(recursive: false, followLinks: false).listen(
       entities.add,
       onError: (_) {
-        // Satu entry gagal di-enumerasi (mis. permission denied) —
-        // diabaikan, listener tetap lanjut ke entry berikutnya
-        // karena cancelOnError: false di bawah.
+        // Satu entry (atau seluruh listing) gagal dibaca — diabaikan
+        // di sini, diproses lebih lanjut di bawah lewat hadStreamError.
+        hadStreamError = true;
       },
       onDone: () => doneCompleter.complete(),
       cancelOnError: false,
     );
     await doneCompleter.future;
+
+    if (hadStreamError && entities.isEmpty) {
+      return _listFolderNative(dir.path);
+    }
 
     final items = <FileItem>[];
 
@@ -153,6 +165,32 @@ class FileEngine {
       }
     }
 
+    _sortItems(items);
+    return items;
+  }
+
+  /// Fallback lewat NativeBridge.listDirectoryNative (java.io.File) —
+  /// lihat komentar panjang di _listFolder soal kenapa ini dibutuhkan.
+  Future<List<FileItem>> _listFolderNative(String path) async {
+    final entries = await _nativeBridge.listDirectoryNative(path);
+    final items = <FileItem>[];
+
+    for (final e in entries) {
+      if (!showHidden && e.name.startsWith('.')) continue;
+      items.add(FileItem(
+        name: e.name,
+        path: e.path,
+        type: e.isDirectory ? FileItemType.folder : FileItemType.file,
+        sizeBytes: e.isDirectory ? 0 : e.sizeBytes,
+        modifiedAt: DateTime.fromMillisecondsSinceEpoch(e.modifiedAtMillis),
+      ));
+    }
+
+    _sortItems(items);
+    return items;
+  }
+
+  void _sortItems(List<FileItem> items) {
     items.sort((a, b) {
       // Folder selalu di atas file, terlepas dari sortMode.
       if (a.isFolder != b.isFolder) return a.isFolder ? -1 : 1;
@@ -166,13 +204,12 @@ class FileEngine {
           return b.sizeBytes.compareTo(a.sizeBytes); // terbesar dulu
       }
     });
-
-    return items;
   }
 }
 
 /// Provider Riverpod untuk FileEngine — satu instance dipakai bersama.
 final fileEngineProvider = Provider<FileEngine>((ref) {
   final eventBus = ref.watch(eventBusProvider);
-  return FileEngine(eventBus);
+  final nativeBridge = ref.watch(nativeBridgeProvider);
+  return FileEngine(eventBus, nativeBridge);
 });

@@ -41,6 +41,35 @@ class StorageVolumeInfo {
   }
 }
 
+/// Satu entry file/folder hasil listing native (Java File API), dipakai
+/// khusus untuk fallback saat dart:io gagal (lihat listDirectoryNative
+/// di NativeBridge).
+class NativeFileEntry {
+  final String name;
+  final String path;
+  final bool isDirectory;
+  final int sizeBytes;
+  final int modifiedAtMillis;
+
+  const NativeFileEntry({
+    required this.name,
+    required this.path,
+    required this.isDirectory,
+    required this.sizeBytes,
+    required this.modifiedAtMillis,
+  });
+
+  factory NativeFileEntry.fromMap(Map<dynamic, dynamic> map) {
+    return NativeFileEntry(
+      name: map['name'] as String? ?? '',
+      path: map['path'] as String? ?? '',
+      isDirectory: map['isDirectory'] as bool? ?? false,
+      sizeBytes: (map['sizeBytes'] as num?)?.toInt() ?? 0,
+      modifiedAtMillis: (map['modifiedAt'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
 class NativeBridge {
   static const _channel = MethodChannel('com.dalx.app/native_bridge');
   static const _storageEventChannel = EventChannel('com.dalx.app/storage_stream');
@@ -95,6 +124,21 @@ class NativeBridge {
     final result =
         await _channel.invokeMethod<Map<dynamic, dynamic>>('getLaunchIntentData');
     return result ?? {'action': 'none', 'paths': <String>[]};
+  }
+
+  /// Fallback listing direktori lewat Java File API native (BUKAN
+  /// dart:io) — dipakai file_engine saat dart:io Directory.list()
+  /// gagal total (bug Flutter yang dikonfirmasi di
+  /// flutter/flutter#108232, paling sering kena di Android/data &
+  /// Android/obb walau MANAGE_EXTERNAL_STORAGE aktif).
+  Future<List<NativeFileEntry>> listDirectoryNative(String path) async {
+    final result = await _channel.invokeMethod<List<dynamic>>(
+      'listDirectoryNative',
+      {'path': path},
+    );
+    return (result ?? [])
+        .map((e) => NativeFileEntry.fromMap(e as Map<dynamic, dynamic>))
+        .toList();
   }
 
   // ---------------- Fase 1.5: Storage Eksternal ----------------

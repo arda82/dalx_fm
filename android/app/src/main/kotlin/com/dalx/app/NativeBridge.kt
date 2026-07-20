@@ -70,6 +70,9 @@ class NativeBridge(private val activity: Activity) : MethodChannel.MethodCallHan
                 "getStorageCapacity" -> {
                     result.success(getStorageCapacity(call.argument<String>("path")!!))
                 }
+                "listDirectoryNative" -> {
+                    result.success(listDirectoryNative(call.argument<String>("path")!!))
+                }
                 else -> result.notImplemented()
             }
         } catch (e: Exception) {
@@ -142,6 +145,44 @@ class NativeBridge(private val activity: Activity) : MethodChannel.MethodCallHan
         }
         activity.setResult(Activity.RESULT_OK, resultIntent)
         activity.finish()
+    }
+
+    /**
+     * Fallback listing direktori pakai java.io.File biasa (BUKAN
+     * dart:io). Dipakai file_engine.dart saat dart:io Directory.list()
+     * gagal total buka sebuah folder — ini bug yang sudah dikonfirmasi
+     * tim Flutter sendiri (flutter/flutter#108232, duplikat dari
+     * #40504): dart:io Directory.listSync() melempar "Permission
+     * denied, errno=13" khusus di Android/data & Android/obb, WALAU
+     * MANAGE_EXTERNAL_STORAGE aktif. java.io.File TIDAK kena bug yang
+     * sama — ini juga kenapa file manager native seperti Amaze/CX File
+     * Manager bisa browse folder itu lancar sementara app berbasis
+     * dart:io murni gagal.
+     *
+     * Item yang gagal dibaca detailnya (mis. permission per-item)
+     * di-skip satu-satu, bukan gagalin seluruh listing — sama seperti
+     * penanganan di sisi Dart.
+     */
+    private fun listDirectoryNative(path: String): List<Map<String, Any?>> {
+        val dir = File(path)
+        val children = dir.listFiles() ?: return emptyList()
+        val result = mutableListOf<Map<String, Any?>>()
+        for (child in children) {
+            try {
+                result.add(
+                    mapOf(
+                        "name" to child.name,
+                        "path" to child.absolutePath,
+                        "isDirectory" to child.isDirectory,
+                        "sizeBytes" to (if (child.isFile) child.length() else 0L),
+                        "modifiedAt" to child.lastModified()
+                    )
+                )
+            } catch (e: Exception) {
+                continue
+            }
+        }
+        return result
     }
 
     // ---------------- Intent Handler: resolusi intent masuk ----------------
