@@ -1,22 +1,29 @@
 package com.dalx.app
 
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.os.StatFs
+import android.os.storage.StorageManager
+import android.os.storage.StorageVolume
 import android.media.MediaScannerConnection
 import android.provider.OpenableColumns
 import android.provider.Settings
 import androidx.core.content.FileProvider
+import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 import java.io.FileOutputStream
+import java.util.concurrent.Executor
 
 /**
  * NativeBridge — semua operasi Android native Fase 1 (Open With,
  * Install/Uninstall APK, Media Scanner, resolusi Intent masuk untuk
- * Document Picker/Intent Handler). MainActivity.kt cuma jadi router
+ * Document Picker/Intent Handler) dan Fase 1.5 (deteksi Storage
+ * Volume — SD Card & USB OTG). MainActivity.kt cuma jadi router
  * tipis ke class ini, mengikuti pola pemisahan seperti
  * device_info_manager.
  */
@@ -26,6 +33,9 @@ class NativeBridge(private val activity: Activity) : MethodChannel.MethodCallHan
         const val CHANNEL = "com.dalx.app/native_bridge"
         private const val AUTHORITY = "com.dalx.app.fileprovider"
     }
+
+    private var storageEventSink: EventChannel.EventSink? = null
+    private var storageVolumeCallback: StorageManager.StorageVolumeCallback? = null
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         try {
@@ -56,6 +66,10 @@ class NativeBridge(private val activity: Activity) : MethodChannel.MethodCallHan
                     result.success(null)
                 }
                 "getLaunchIntentData" -> result.success(resolveIntentToMap(activity.intent))
+                "getStorageVolumes" -> result.success(getStorageVolumesList())
+                "getStorageCapacity" -> {
+                    result.success(getStorageCapacity(call.argument<String>("path")!!))
+                }
                 else -> result.notImplemented()
             }
         } catch (e: Exception) {
@@ -181,6 +195,69 @@ class NativeBridge(private val activity: Activity) : MethodChannel.MethodCallHan
             outFile.absolutePath
         } catch (e: Exception) {
             null
+        }
+    }
+
+    // ---------------- Fase 1.5: Storage Volume Detection ----------------
+
+    /**
+     * Enumerasi semua storage volume yang di-mount sistem (Internal,
+     * SD Card, USB OTG) lewat StorageManager.storageVolumes — API ini
+     * jalan langsung tanpa BroadcastReceiver/manifest intent-filter
+     * legacy karena minSdk DalX sudah 30 (StorageVolume.directory &
+     * getDescription baru stabil dari API 30 ke atas).
+     *
+     * DalX TIDAK punya cara pasti membedakan "SD Card" vs "USB OTG"
+     * murni dari API sistem (keduanya sama-sama muncul sebagai
+     * removable volume) — pembedaan dilakukan di sisi Dart
+     * (core/storage_access) lewat pencocokan kata kunci di [label].
+     */
+    private fun getStorageVolumesList(): List<Map<String, Any?>> {
+        val storageManager = activity.getSystemService(Context.STORAGE_SERVICE) as StorageManager
+        return storageManager.storageVolumes.mapNotNull { volume ->
+            val dir = volume.directory ?: return@mapNotNull null
+            mapOf(
+                "path" to dir.absolutePath,
+                "label" to (volume.getDescription(activity) ?: "Storage"),
+                "isRemovable" to volume.isRemovable,
+                "isPrimary" to volume.isPrimary,
+                "state" to volume.state
+            )
+        }
+    }
+
+    /** Kapasitas storage di [path] mana pun (bukan cuma Internal) — dipakai
+     * buat SD Card/USB OTG di Storage Overview, lewat StatFs generik. */
+    private fun getStorageCapacity(path: String): Map<String, Long> {
+        val stat = StatFs(path)
+        val totalBytes = stat.blockCountLong * stat.blockSizeLong
+        val freeBytes = stat.availableBlocksLong * stat.blockSizeLong
+        return mapOf("totalBytes" to totalBytes, "freeBytes" to freeBytes)
+    }
+
+    /**
+     * Dipanggil dari MainActivity setelah EventChannel storage_stream
+     * di-listen dari Dart (onListen) / berhenti (onCancel). Begitu ada
+     * listener aktif, DalX daftar ke StorageManager buat dikabarin
+     * real-time tiap ada volume mount/unmount (colok/cabut SD
+     * Card/USB OTG) — bukan polling manual.
+     */
+    fun attachStorageEventSink(sink: EventChannel.EventSink?) {
+        storageEventSink = sink
+        val storageManager = activity.getSystemService(Context.STORAGE_SERVICE) as StorageManager
+
+        if (sink != null) {
+            val executor = Executor { command -> activity.runOnUiThread(command) }
+            val callback = object : StorageManager.StorageVolumeCallback() {
+                override fun onStateChanged(volume: StorageVolume) {
+                    storageEventSink?.success(getStorageVolumesList())
+                }
+            }
+            storageManager.registerStorageVolumeCallback(executor, callback)
+            storageVolumeCallback = callback
+        } else {
+            storageVolumeCallback?.let { storageManager.unregisterStorageVolumeCallback(it) }
+            storageVolumeCallback = null
         }
     }
 }

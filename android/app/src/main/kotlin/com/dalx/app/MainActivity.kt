@@ -29,6 +29,10 @@ import io.flutter.plugin.common.MethodChannel
 // - "com.dalx.app/intent_stream" (Fase 1) — EventChannel buat kirim
 //   intent baru ke Dart saat app SUDAH berjalan (onNewIntent), mis.
 //   user share file lagi ke DalX tanpa nutup app dulu.
+// - "com.dalx.app/storage_stream" (Fase 1.5) — EventChannel real-time
+//   buat kabarin Dart tiap ada SD Card/USB OTG dicolok atau dicabut,
+//   pakai StorageManager.registerStorageVolumeCallback (API 30+,
+//   sesuai minSdk DalX) — bukan BroadcastReceiver legacy.
 class MainActivity : FlutterActivity() {
     private val deviceInfoChannelName = "com.dalx.app/device_info"
 
@@ -65,6 +69,19 @@ class MainActivity : FlutterActivity() {
             }
             override fun onCancel(arguments: Any?) {
                 intentEventSink = null
+            }
+        })
+
+        // ---------------- storage_stream (Fase 1.5) ----------------
+        EventChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "com.dalx.app/storage_stream"
+        ).setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                nativeBridge.attachStorageEventSink(events)
+            }
+            override fun onCancel(arguments: Any?) {
+                nativeBridge.attachStorageEventSink(null)
             }
         })
     }

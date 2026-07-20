@@ -4,19 +4,22 @@
 // Layar Awal, Internal Storage, SD Card, USB OTG, Favorites,
 // Task Queue, Bersihkan Cache (aksi langsung), Settings, About.
 //
-// Sub-Fase 0b: Internal Storage dan Task Queue aktif. SD Card, USB
-// OTG, Favorites, Settings menyusul di fase berikutnya sesuai roadmap.
+// Fase 1.5: SD Card & USB OTG aktif — query lewat storageAccessProvider
+// (core/storage_access), cari volume yang cocok lewat findByHint().
+// Favorites, Settings menyusul di fase berikutnya sesuai roadmap.
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/storage_access/storage_access.dart';
 import '../storage_overview/storage_overview_screen.dart';
 import '../task_queue/task_queue_screen.dart';
 import 'explorer_screen.dart';
 
-class AppDrawer extends StatelessWidget {
+class AppDrawer extends ConsumerWidget {
   const AppDrawer({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Drawer(
       child: SafeArea(
         child: Column(
@@ -59,12 +62,22 @@ class AppDrawer extends StatelessWidget {
                   _DrawerTile(
                     icon: Icons.sd_card_outlined,
                     label: 'SD Card',
-                    disabled: true, // aktif di Sub-Fase 0b
+                    onTap: () => _openExternalStorage(
+                      context,
+                      ref,
+                      hint: 'sd',
+                      label: 'SD Card',
+                    ),
                   ),
                   _DrawerTile(
                     icon: Icons.usb_outlined,
                     label: 'USB OTG',
-                    disabled: true,
+                    onTap: () => _openExternalStorage(
+                      context,
+                      ref,
+                      hint: 'usb',
+                      label: 'USB OTG',
+                    ),
                   ),
                   _DrawerTile(
                     icon: Icons.star_outline,
@@ -112,6 +125,36 @@ class AppDrawer extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+
+  // Fase 1.5: query volume SD Card/USB OTG lewat storageAccessProvider,
+  // cari yang labelnya cocok [hint] ("sd"/"usb"). Ketemu → tutup
+  // drawer, masuk Explorer. Gak ketemu → tutup drawer, kasih tau
+  // lewat snackbar (bukan silent fail).
+  Future<void> _openExternalStorage(
+    BuildContext context,
+    WidgetRef ref, {
+    required String hint,
+    required String label,
+  }) async {
+    final storageAccess = ref.read(storageAccessProvider);
+    final volumes = await storageAccess.queryVolumes();
+    final match = storageAccess.findByHint(volumes, hint);
+
+    if (!context.mounted) return;
+    Navigator.pop(context); // tutup drawer
+
+    if (match == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Tidak ada $label terpasang')),
+      );
+      return;
+    }
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => ExplorerScreen(rootPath: match.path)),
     );
   }
 

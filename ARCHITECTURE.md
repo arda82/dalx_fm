@@ -81,12 +81,20 @@ di sini untuk referensi cepat tanpa buka kode.
 |---|---|---|
 | `FolderOpened` | User membuka folder tertentu | explorer_ui, breadcrumb |
 | `StorageMounted` | Storage device (SD Card/USB OTG) terpasang | storage_overview, drawer |
+| `FileCreated` | File/folder baru dibuat | explorer_ui, media_scanner |
+| `FileDeleted` | File/folder dihapus | explorer_ui |
+| `FileRenamed` | File/folder di-rename | explorer_ui |
+| `FileMoved` | File/folder dipindah (cut-paste) | explorer_ui, media_scanner |
+| `FileCopied` | File/folder disalin | explorer_ui, media_scanner |
+| `TaskProgress` | Progress task queue update | task_queue UI |
+| `TaskCompleted` | Task queue selesai (sukses/gagal) | task_queue UI, explorer_ui |
+| `ExternalFileOpened` | DalX dibuka dari luar (Open With/Share) | explorer_ui |
+| `ApkInstallRequested` | User pilih Install APK di Explorer | — |
 
-Event baru untuk Sub-Fase 0b dan seterusnya (FileDeleted, FileMoved,
-FileRenamed, StorageRemoved, dll) akan ditambahkan ke tabel ini begitu
-sub-fase terkait mulai dikerjakan — supaya tabel ini selalu jadi
-sumber kebenaran terkini, bukan didesain di muka sebelum ada
-"pelanggan" nyata.
+Event baru untuk fase seterusnya (`StorageRemoved`, dll) akan
+ditambahkan ke tabel ini begitu fase terkait mulai dikerjakan —
+supaya tabel ini selalu jadi sumber kebenaran terkini, bukan
+didesain di muka sebelum ada "pelanggan" nyata.
 
 ## 5. Struktur Navigasi (hasil desain UI/UX)
 
@@ -151,6 +159,24 @@ mengubah filesystem)
 Document Picker, Open With, Share Sheet, Install/Uninstall APK, Media
 Scanner, Intent Handler.
 
+**Fase 1.5 — Storage Eksternal** (disisipkan di luar urutan awal —
+lihat catatan di README/riwayat kenapa dipercepat dari Fase 8)
+- Deteksi SD Card & USB OTG lewat `StorageManager.storageVolumes` +
+  `registerStorageVolumeCallback` (real-time, API 30+, sesuai minSdk
+  DalX — bukan `BroadcastReceiver` legacy)
+- Browsing penuh (baca/tulis) lewat `dart:io` biasa, BUKAN SAF —
+  DalX sudah punya `MANAGE_EXTERNAL_STORAGE` (All Files Access) sejak
+  Sub-Fase 0a, yang mencakup akses langsung ke semua shared storage,
+  bukan cuma Internal Storage
+- Modul baru `core/storage_access` — satu-satunya pemicu event
+  `StorageMounted` (didefinisikan sejak Sub-Fase 0a di katalog, baru
+  sekarang benar-benar dipicu)
+- DalX tidak punya kepastian mutlak dari API sistem untuk membedakan
+  "SD Card" vs "USB OTG" (keduanya sama-sama muncul sebagai removable
+  volume) — dibedakan lewat pencocokan kata kunci di label sistem
+- Milestone: drawer SD Card/USB OTG aktif, Storage Overview nampilin
+  kapasitas real, tap masuk Explorer seperti Internal Storage
+
 **Fase 2 — Explorer Polish**
 Grid View, Favorites, Duplicate, New File.
 
@@ -171,8 +197,10 @@ Theme, Language, Font Size lengkap; Thumbnail/Folder Cache; Error/Crash
 Log.
 
 **Fase 8 — Native Power-up**
-Compress kuat (setara 7z) via native lib, edit PDF, edit/preview PPT,
-dukungan USB OTG penuh. Approach detail native library masih dibahas
+Compress kuat (setara 7z) via native lib, edit PDF, edit/preview PPT.
+Akses baca/tulis dasar SD Card & USB OTG sudah aktif sejak Fase 1.5 —
+fase ini fokus ke kemampuan native yang lebih berat, bukan akses
+storage-nya lagi. Approach detail native library masih dibahas
 terpisah saat fase ini dimulai.
 
 ## 8. Keputusan Teknis

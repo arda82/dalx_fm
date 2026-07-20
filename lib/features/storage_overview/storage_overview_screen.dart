@@ -5,9 +5,10 @@
 // & RAM diambil lewat DeviceInfoManager (platform channel native),
 // bukan hardcode.
 //
-// Sub-Fase 0b: SD Card dan USB OTG masih ditampilkan redup/nonaktif
-// (belum ada deteksi mount device eksternal — itu StorageMounted
-// event, menyusul di Fase 1/8). Persentase dihitung otomatis dari
+// Fase 1.5: SD Card & USB OTG sekarang aktif — dideteksi lewat
+// core/storage_access (StorageManager, real-time). Kalau gak ada
+// device removable ke-mount, kartu tetap tampil redup "Tidak
+// terpasang" seperti sebelumnya. Persentase dihitung otomatis dari
 // angka byte asli, bukan diketik manual — supaya progress bar dan
 // teks selalu sinkron.
 
@@ -16,6 +17,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/device_info/device_info_manager.dart';
+import '../../core/native_bridge/native_bridge.dart';
+import '../../core/storage_access/storage_access.dart';
 import '../explorer_ui/app_drawer.dart';
 import '../explorer_ui/explorer_screen.dart';
 
@@ -101,9 +104,25 @@ class _StorageOverviewScreenState extends ConsumerState<StorageOverviewScreen> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                const _DisabledStorageCard(icon: Icons.sd_card_outlined, label: 'SD Card'),
+                _buildExternalCard(
+                  context,
+                  hint: 'sd',
+                  fallbackIcon: Icons.sd_card_outlined,
+                  fallbackLabel: 'SD Card',
+                  volumes: data.removableVolumes,
+                  capacities: data.volumeCapacities,
+                  storageAccess: data.storageAccess,
+                ),
                 const SizedBox(height: 12),
-                const _DisabledStorageCard(icon: Icons.usb_outlined, label: 'USB OTG', subtitle: 'Tidak terpasang'),
+                _buildExternalCard(
+                  context,
+                  hint: 'usb',
+                  fallbackIcon: Icons.usb_outlined,
+                  fallbackLabel: 'USB OTG',
+                  volumes: data.removableVolumes,
+                  capacities: data.volumeCapacities,
+                  storageAccess: data.storageAccess,
+                ),
                 const SizedBox(height: 12),
                 _RamCard(info: data.ram),
               ],
@@ -116,16 +135,72 @@ class _StorageOverviewScreenState extends ConsumerState<StorageOverviewScreen> {
 
   Future<_OverviewData> _loadAll(WidgetRef ref) async {
     final manager = ref.read(deviceInfoManagerProvider);
+    final nativeBridge = ref.read(nativeBridgeProvider);
+    final storageAccess = ref.read(storageAccessProvider);
+
     final storage = await manager.getStorageInfo();
     final ram = await manager.getRamInfo();
-    return _OverviewData(storage: storage, ram: ram);
+    final volumes = await storageAccess.queryVolumes();
+    final removable = storageAccess.removableVolumes(volumes);
+
+    final capacities = <String, Map<String, int>>{};
+    for (final v in removable) {
+      capacities[v.path] = await nativeBridge.getStorageCapacity(v.path);
+    }
+
+    return _OverviewData(
+      storage: storage,
+      ram: ram,
+      removableVolumes: removable,
+      volumeCapacities: capacities,
+      storageAccess: storageAccess,
+    );
+  }
+
+  // Cari volume yang cocok [hint] ("sd"/"usb"), render kartu aktif
+  // kalau ketemu (pakai kapasitas yang sudah di-fetch di _loadAll),
+  // atau kartu redup "Tidak terpasang" kalau tidak.
+  Widget _buildExternalCard(
+    BuildContext context, {
+    required String hint,
+    required IconData fallbackIcon,
+    required String fallbackLabel,
+    required List<StorageVolumeInfo> volumes,
+    required Map<String, Map<String, int>> capacities,
+    required StorageAccess storageAccess,
+  }) {
+    final match = storageAccess.findByHint(volumes, hint);
+    if (match == null) {
+      return _DisabledStorageCard(icon: fallbackIcon, label: fallbackLabel);
+    }
+    final capacity = capacities[match.path];
+    if (capacity == null) {
+      return _DisabledStorageCard(icon: fallbackIcon, label: fallbackLabel);
+    }
+    return _ExternalStorageCard(
+      icon: fallbackIcon,
+      label: match.label,
+      path: match.path,
+      totalBytes: capacity['totalBytes'] ?? 0,
+      freeBytes: capacity['freeBytes'] ?? 0,
+    );
   }
 }
 
 class _OverviewData {
   final StorageInfo storage;
   final RamInfo ram;
-  const _OverviewData({required this.storage, required this.ram});
+  final List<StorageVolumeInfo> removableVolumes;
+  final Map<String, Map<String, int>> volumeCapacities;
+  final StorageAccess storageAccess;
+
+  const _OverviewData({
+    required this.storage,
+    required this.ram,
+    required this.removableVolumes,
+    required this.volumeCapacities,
+    required this.storageAccess,
+  });
 }
 
 class _StorageCard extends StatelessWidget {
@@ -196,6 +271,94 @@ class _StorageCard extends StatelessWidget {
       ),
     ), // Container
     ); // InkWell
+  }
+}
+
+// Fase 1.5: kartu SD Card/USB OTG aktif — sama persis visualnya
+// dengan _StorageCard (Internal Storage), tapi terima bytes mentah
+// langsung (bukan StorageInfo, karena StorageInfo dari
+// device_info_manager cuma untuk Internal Storage) dan navigasi ke
+// path volume yang bersangkutan.
+class _ExternalStorageCard extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String path;
+  final int totalBytes;
+  final int freeBytes;
+
+  const _ExternalStorageCard({
+    required this.icon,
+    required this.label,
+    required this.path,
+    required this.totalBytes,
+    required this.freeBytes,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final usedBytes = totalBytes - freeBytes;
+    final usedFraction = totalBytes > 0 ? usedBytes / totalBytes : 0.0;
+    final usedGB = usedBytes / (1024 * 1024 * 1024);
+    final totalGB = totalBytes / (1024 * 1024 * 1024);
+    final percent = (usedFraction * 1000).round() / 10;
+
+    return InkWell(
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => ExplorerScreen(rootPath: path)),
+      ),
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Theme.of(context).cardColor,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: _dalxAccent.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  alignment: Alignment.center,
+                  child: Icon(icon, color: _dalxAccent, size: 19),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14.5)),
+                      Text(
+                        '${usedGB.toStringAsFixed(1)} GB ($percent%) dari ${totalGB.toStringAsFixed(1)} GB',
+                        style: TextStyle(fontSize: 11.5, color: Colors.grey.shade600),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right, color: Colors.grey.shade500),
+              ],
+            ),
+            const SizedBox(height: 12),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: LinearProgressIndicator(
+                value: usedFraction,
+                minHeight: 8,
+                backgroundColor: Colors.grey.shade200,
+                color: _dalxAccent,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

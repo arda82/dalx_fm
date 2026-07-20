@@ -9,8 +9,41 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+/// Info satu storage volume (Internal/SD Card/USB OTG) dari
+/// StorageManager sistem Android. DalX tidak dapat kepastian mutlak
+/// dari sistem apakah suatu volume removable itu "SD Card" atau "USB
+/// OTG" — keduanya sama-sama muncul sebagai volume removable, jadi
+/// [label] (mis. "SD card", "USB Drive") dipakai buat pencocokan kata
+/// kunci di core/storage_access.
+class StorageVolumeInfo {
+  final String path;
+  final String label;
+  final bool isRemovable;
+  final bool isPrimary;
+  final String state;
+
+  const StorageVolumeInfo({
+    required this.path,
+    required this.label,
+    required this.isRemovable,
+    required this.isPrimary,
+    required this.state,
+  });
+
+  factory StorageVolumeInfo.fromMap(Map<dynamic, dynamic> map) {
+    return StorageVolumeInfo(
+      path: map['path'] as String? ?? '',
+      label: map['label'] as String? ?? 'Storage',
+      isRemovable: map['isRemovable'] as bool? ?? false,
+      isPrimary: map['isPrimary'] as bool? ?? false,
+      state: map['state'] as String? ?? 'unknown',
+    );
+  }
+}
+
 class NativeBridge {
   static const _channel = MethodChannel('com.dalx.app/native_bridge');
+  static const _storageEventChannel = EventChannel('com.dalx.app/storage_stream');
 
   /// Buka file lewat app lain (Open With), mirip "Open With" di file
   /// manager pada umumnya. [mimeType] opsional, default '*/*'.
@@ -62,6 +95,41 @@ class NativeBridge {
     final result =
         await _channel.invokeMethod<Map<dynamic, dynamic>>('getLaunchIntentData');
     return result ?? {'action': 'none', 'paths': <String>[]};
+  }
+
+  // ---------------- Fase 1.5: Storage Eksternal ----------------
+
+  /// Query sekali daftar semua storage volume yang di-mount (Internal,
+  /// SD Card, USB OTG). Dipakai buat load awal (Storage Overview,
+  /// drawer) — komplemen [storageVolumeChanges] yang real-time.
+  Future<List<StorageVolumeInfo>> getStorageVolumes() async {
+    final result = await _channel.invokeMethod<List<dynamic>>('getStorageVolumes');
+    return (result ?? [])
+        .map((e) => StorageVolumeInfo.fromMap(e as Map<dynamic, dynamic>))
+        .toList();
+  }
+
+  /// Kapasitas (total & free bytes) storage di [path] mana pun — bukan
+  /// cuma Internal Storage seperti getStorageInfo di device_info.
+  Future<Map<String, int>> getStorageCapacity(String path) async {
+    final result = await _channel.invokeMethod<Map<dynamic, dynamic>>(
+      'getStorageCapacity',
+      {'path': path},
+    );
+    return {
+      'totalBytes': (result?['totalBytes'] as num?)?.toInt() ?? 0,
+      'freeBytes': (result?['freeBytes'] as num?)?.toInt() ?? 0,
+    };
+  }
+
+  /// Stream real-time: nyala tiap kali SD Card/USB OTG dicolok atau
+  /// dicabut (StorageManager.registerStorageVolumeCallback di sisi
+  /// native), bukan hasil polling manual dari Dart.
+  Stream<List<StorageVolumeInfo>> get storageVolumeChanges {
+    return _storageEventChannel.receiveBroadcastStream().map((event) {
+      final list = event as List<dynamic>;
+      return list.map((e) => StorageVolumeInfo.fromMap(e as Map<dynamic, dynamic>)).toList();
+    });
   }
 
   /// Tebak MIME type dari ekstensi file, dipakai untuk [openWith] dan
