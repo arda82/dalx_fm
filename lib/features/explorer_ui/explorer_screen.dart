@@ -14,6 +14,7 @@
 // DalX dibuka dalam pickMode (Document Picker). Lihat _handleFileTap.
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../core/models/file_item.dart';
@@ -51,8 +52,18 @@ class ExplorerScreen extends ConsumerWidget {
           notifier.exitSelectMode();
         } else if (notifier.canGoBack) {
           notifier.goBack();
+        } else if (Navigator.of(context).canPop()) {
+          // Masih ada route lain di atas ExplorerScreen ini (mis. dibuka
+          // dari drawer "Internal Storage" di atas Storage Overview) —
+          // pop route itu, bukan maybePop() yang percuma karena
+          // canPop:false bikin dia diam saja (root cause ANR "back
+          // macet total" waktu sudah di folder terluar).
+          Navigator.of(context).pop();
         } else {
-          Navigator.of(context).maybePop();
+          // ExplorerScreen ini adalah root (mis. dibuka langsung dari
+          // main.dart tanpa route di atasnya) — keluar app, bukan
+          // dibiarkan diam yang bikin sistem anggap app hang.
+          SystemNavigator.pop();
         }
       },
       child: Scaffold(
