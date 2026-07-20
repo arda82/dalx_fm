@@ -22,6 +22,7 @@ import '../file_engine/file_engine.dart';
 import '../task_queue/task_queue_screen.dart';
 import 'app_drawer.dart';
 import 'explorer_state.dart';
+import 'file_info_sheet.dart';
 
 const dalxAccent = Color(0xFF0A84FF);
 
@@ -179,7 +180,15 @@ class ExplorerScreen extends ConsumerWidget {
         );
       }
     } else if (value == 'info') {
-      // File Info bottom sheet — menyusul di iterasi berikutnya 0b
+      // File Info hanya berlaku saat tepat 1 item terpilih.
+      if (state.selectedPaths.length != 1) return;
+      final selectedPath = state.selectedPaths.first;
+      final item = state.items.firstWhere(
+        (i) => i.path == selectedPath,
+        orElse: () => throw StateError('Item tidak ditemukan: $selectedPath'),
+      );
+      if (!context.mounted) return;
+      await showFileInfoSheet(context, item);
     }
   }
 

@@ -17,6 +17,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/device_info/device_info_manager.dart';
 import '../explorer_ui/app_drawer.dart';
+import '../explorer_ui/explorer_screen.dart';
 
 const _dalxAccent = Color(0xFF0A84FF);
 
@@ -90,6 +91,14 @@ class _StorageOverviewScreenState extends ConsumerState<StorageOverviewScreen> {
                   icon: Icons.smartphone_outlined,
                   label: 'Internal Storage',
                   info: data.storage,
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const ExplorerScreen(
+                        rootPath: '/storage/emulated/0',
+                      ),
+                    ),
+                  ),
                 ),
                 const SizedBox(height: 12),
                 const _DisabledStorageCard(icon: Icons.sd_card_outlined, label: 'SD Card'),
@@ -123,8 +132,9 @@ class _StorageCard extends StatelessWidget {
   final IconData icon;
   final String label;
   final StorageInfo info;
+  final VoidCallback? onTap;
 
-  const _StorageCard({required this.icon, required this.label, required this.info});
+  const _StorageCard({required this.icon, required this.label, required this.info, this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -132,7 +142,10 @@ class _StorageCard extends StatelessWidget {
     final totalGB = info.totalBytes / (1024 * 1024 * 1024);
     final percent = (info.usedFraction * 1000).round() / 10; // 1 desimal
 
-    return Container(
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Theme.of(context).cardColor,
@@ -181,7 +194,8 @@ class _StorageCard extends StatelessWidget {
           ),
         ],
       ),
-    );
+    ), // Container
+    ); // InkWell
   }
 }
 
