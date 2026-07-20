@@ -8,6 +8,7 @@
 // file_engine adalah satu-satunya modul yang boleh memicu event
 // FolderOpened, FileCreated, dan FileRenamed.
 
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/events/event_bus.dart';
@@ -105,24 +106,51 @@ class FileEngine {
   }
 
   Future<List<FileItem>> _listFolder(Directory dir) async {
-    final entities = await dir.list().toList();
+    // Sebagian subfolder (paling sering di dalam Android/data milik
+    // app lain) bisa nolak dibaca meski MANAGE_EXTERNAL_STORAGE aktif
+    // — beberapa OEM (mis. Xiaomi HyperOS) nambahin lapisan restriksi
+    // sendiri per-subfolder di luar standar AOSP. `dir.list().toList()`
+    // versi lama itu ALL-OR-NOTHING: satu entry gagal, seluruh folder
+    // ikut gagal. Di bawah ini entry yang error di-skip, bukan
+    // ngegagalin seluruh listing folder induknya — sama seperti cara
+    // file manager lain (Amaze, Solid Explorer, dll) nanganin ini.
+    final entities = <FileSystemEntity>[];
+    final doneCompleter = Completer<void>();
+    dir.list(recursive: false, followLinks: false).listen(
+      entities.add,
+      onError: (_) {
+        // Satu entry gagal di-enumerasi (mis. permission denied) —
+        // diabaikan, listener tetap lanjut ke entry berikutnya
+        // karena cancelOnError: false di bawah.
+      },
+      onDone: () => doneCompleter.complete(),
+      cancelOnError: false,
+    );
+    await doneCompleter.future;
+
     final items = <FileItem>[];
 
     for (final entity in entities) {
-      final stat = await entity.stat();
-      final name = entity.path.split(Platform.pathSeparator).last;
+      try {
+        final stat = await entity.stat();
+        final name = entity.path.split(Platform.pathSeparator).last;
 
-      // Show/Hide Hidden Files — sesuai state showHidden, biasanya
-      // dikontrol dari dropdown menu titik tiga di Explorer.
-      if (!showHidden && name.startsWith('.')) continue;
+        // Show/Hide Hidden Files — sesuai state showHidden, biasanya
+        // dikontrol dari dropdown menu titik tiga di Explorer.
+        if (!showHidden && name.startsWith('.')) continue;
 
-      items.add(FileItem(
-        name: name,
-        path: entity.path,
-        type: entity is Directory ? FileItemType.folder : FileItemType.file,
-        sizeBytes: entity is File ? stat.size : 0,
-        modifiedAt: stat.modified,
-      ));
+        items.add(FileItem(
+          name: name,
+          path: entity.path,
+          type: entity is Directory ? FileItemType.folder : FileItemType.file,
+          sizeBytes: entity is File ? stat.size : 0,
+          modifiedAt: stat.modified,
+        ));
+      } catch (_) {
+        // Item ini gak bisa di-stat (permission denied spesifik buat
+        // item ini) — skip, jangan gagalin seluruh folder.
+        continue;
+      }
     }
 
     items.sort((a, b) {
