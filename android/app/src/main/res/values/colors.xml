@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Warna navy background app icon DalX, disampling langsung dari
+         aset brand board resmi (bukan placeholder). Dipakai sebagai
+         background layer adaptive icon. -->
+    <color name="ic_launcher_background">#061129</color>
+</resources>
