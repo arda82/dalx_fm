@@ -1,12 +1,20 @@
 // features/file_engine/file_engine.dart
 //
 // File Engine: navigasi folder (Sub-Fase 0a) + operasi ringan yang
-// TIDAK butuh Task Queue (New Folder, Rename — instan, bukan operasi
-// besar). Copy/Move/Delete lewat TaskQueue (features/task_queue),
-// bukan di sini — lihat ARCHITECTURE.md bagian 7.
+// TIDAK butuh Task Queue (New Folder, New File, Rename, Duplicate —
+// instan, bukan operasi besar). Copy/Move/Delete lewat TaskQueue
+// (features/task_queue), bukan di sini — lihat ARCHITECTURE.md
+// bagian 7.
 //
 // file_engine adalah satu-satunya modul yang boleh memicu event
 // FolderOpened, FileCreated, dan FileRenamed.
+//
+// Root Mode (lihat core/settings/app_settings.dart): saat aktif,
+// begitu history navigasi di ExplorerScreen habis (canGoBack false),
+// goToParent() dipakai buat naik ke folder induk ASLI filesystem
+// (di luar history), terus sampai mentok "/". Saat non-root, jalur
+// ini tidak pernah dipanggil — ExplorerScreen langsung arahkan ke
+// Layar Awal begitu history habis.
 
 import 'dart:async';
 import 'dart:io';
@@ -34,6 +42,10 @@ class FileEngine {
 
   bool get canGoBack => _history.length > 1;
 
+  /// True kalau folder yang sedang dibuka adalah root filesystem asli
+  /// ("/") — dipakai Root Mode buat tau kapan berhenti naik.
+  bool get atFilesystemRoot => currentPath == '/';
+
   /// Buka folder di [path], baca isinya, dan pancarkan FolderOpened.
   /// Melempar exception kalau path bukan direktori atau tidak bisa
   /// dibaca (mis. permission belum diberikan).
@@ -60,6 +72,31 @@ class FileEngine {
     _history.removeLast(); // buang folder saat ini
     final previousPath = _history.removeLast(); // ambil & buang folder sebelumnya
     return openFolder(previousPath); // openFolder akan menambah lagi ke history
+  }
+
+  /// Root Mode saja: naik ke folder INDUK ASLI filesystem dari
+  /// [currentPath], di luar history ExplorerScreen ini (mis. dari
+  /// /storage/emulated/0 naik ke /storage, lalu /). Melempar
+  /// StateError kalau sudah di root filesystem ("/") — cek
+  /// [atFilesystemRoot] dulu sebelum panggil ini.
+  Future<List<FileItem>> goToParent() async {
+    final path = currentPath;
+    if (path == null) {
+      throw StateError('Belum ada folder yang dibuka');
+    }
+    final parent = _parentOf(path);
+    if (parent == null) {
+      throw StateError('Sudah di root filesystem');
+    }
+    return openFolder(parent);
+  }
+
+  String? _parentOf(String path) {
+    if (path == '/') return null;
+    final normalized = path.endsWith('/') ? path.substring(0, path.length - 1) : path;
+    final idx = normalized.lastIndexOf('/');
+    if (idx <= 0) return '/';
+    return normalized.substring(0, idx);
   }
 
   /// Baca ulang isi folder yang sedang dibuka tanpa mengubah history.

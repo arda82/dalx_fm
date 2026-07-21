@@ -1,9 +1,11 @@
-
 // features/explorer_ui/explorer_screen.dart
 //
-// Layar Explorer Sub-Fase 0b + Fase 2 (Explorer Polish) + Fase 1
-// (pickMode — Document Picker).
+// Layar Explorer Sub-Fase 0b + Fase 1 (Share, File Info, Open With,
+// Install APK, pickMode — Document Picker) + Fase 2 (Explorer Polish:
+// Grid View, Favorites, Duplicate, New File) + Root Mode (back-button
+// behavior khusus).
 //
+// --- pickMode ---
 // pickMode = true dipakai saat DalX dibuka lewat intent
 // ACTION_GET_CONTENT (app lain minta DalX jadi file picker-nya):
 // - Tap FILE -> kembalikan path ke app pemanggil lewat
@@ -11,23 +13,44 @@
 // - Tap FOLDER -> navigasi biasa (buka isi folder).
 // - Semua aksi ubah filesystem (New Folder/File, Delete, Rename,
 //   Copy/Cut/Paste, Duplicate, multi-select) DIMATIKAN — picker cuma
-//   untuk memilih, bukan mengelola file.
+//   untuk memilih, bukan mengelola file. Root Mode/Layar Awal juga
+//   tidak berlaku di pickMode (back = pop/exit biasa).
 //
-// Toolbar normal: Hamburger, Judul, Search, titik-tiga (dropdown:
-// New Folder, New File, Hidden Files toggle, List/Grid) — menu
-// titik-tiga disederhanakan di pickMode (cuma Hidden Files & View).
-// Action mode toolbar (multi-select) sepenuhnya nonaktif di pickMode.
+// --- Root Mode (core/settings/app_settings.dart) ---
+// Toggle manual di Settings, default OFF (DalX tidak mendeteksi root
+// otomatis). Berlaku begitu history navigasi di ExplorerScreen ini
+// habis (canGoBack false) — titik ini sama saja baik masuk dari
+// drawer "Internal Storage" maupun dari card di Layar Awal:
+// - OFF -> back langsung ke Layar Awal (StorageOverviewScreen),
+//   pakai pushAndRemoveUntil biar bersih dari back-stack lama,
+//   konsisten dari jalur masuk manapun.
+// - ON  -> back naik ke folder induk ASLI filesystem (di luar
+//   history), terus sampai mentok "/" (lihat FileEngine.goToParent).
+//   Setelah di "/", back berikutnya baru pop/exit biasa.
+//
+// --- Tap File (non-pickMode) ---
+// - file .apk -> cek izin install, trigger installer sistem
+// - file lain -> Open With (chooser Android)
+//
+// --- Folder Android/data & Android/obb ---
+// Dibatasi total oleh Android non-root, ditampilkan lewat notice
+// informatif (bukan "Folder ini kosong" polos) — lihat
+// _isRestrictedAndroidFolder/_buildRestrictedNotice.
 
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:share_plus/share_plus.dart';
 import '../../core/models/file_item.dart';
 import '../../core/native_bridge/native_bridge.dart';
+import '../../core/settings/app_settings.dart';
 import '../favorites/favorites_service.dart';
 import '../file_engine/file_engine.dart';
+import '../storage_overview/storage_overview_screen.dart';
 import '../task_queue/task_queue_screen.dart';
 import 'app_drawer.dart';
 import 'explorer_state.dart';
+import 'file_info_sheet.dart';
 
 const dalxAccent = Color(0xFF0A84FF);
 
@@ -67,15 +90,45 @@ class ExplorerScreen extends ConsumerWidget {
       canPop: false,
       onPopInvokedWithResult: (didPop, result) {
         if (didPop) return;
-        // Di pickMode, multi-select tidak pernah aktif (lihat
-        // _buildFileList), jadi cabang ini aman diabaikan.
+
         if (explorerState.isSelectMode) {
           notifier.exitSelectMode();
-        } else if (notifier.canGoBack) {
-          notifier.goBack();
-        } else {
-          _handlePopOrExit(context);
+          return;
         }
+        if (notifier.canGoBack) {
+          notifier.goBack();
+          return;
+        }
+
+        // Di pickMode, tidak ada konsep Layar Awal/Root Mode — cukup
+        // pop/exit biasa begitu history habis.
+        if (pickMode) {
+          _handlePopOrExit(context);
+          return;
+        }
+
+        // History navigasi ExplorerScreen ini sudah habis (titik ini
+        // sama persis baik masuk dari drawer "Internal Storage"
+        // maupun dari card di Layar Awal) — sekarang tergantung Root
+        // Mode.
+        final isRootMode = ref.read(rootModeProvider);
+        if (isRootMode) {
+          if (!notifier.atFilesystemRoot) {
+            notifier.goToParent();
+          } else {
+            _handlePopOrExit(context);
+          }
+          return;
+        }
+
+        // Non-root: selalu balik ke Layar Awal. pushAndRemoveUntil
+        // membersihkan seluruh back-stack, biar hasilnya konsisten
+        // dari jalur masuk manapun — bukan cuma pop satu level yang
+        // bisa mendarat di tempat berbeda tergantung cara masuknya.
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const StorageOverviewScreen()),
+          (route) => false,
+        );
       },
       child: Scaffold(
         appBar: (explorerState.isSelectMode && !pickMode)
@@ -199,15 +252,7 @@ class ExplorerScreen extends ConsumerWidget {
               : null,
         ),
         PopupMenuButton<String>(
-          onSelected: (value) {
-            if (value == 'share') {
-              // Share sheet — menyusul Fase 1 (Android Integration)
-            } else if (value == 'info') {
-              // File Info bottom sheet — menyusul di iterasi berikutnya 0b
-            } else if (value == 'favorite') {
-              ref.read(favoritesProvider.notifier).toggleMultiple(state.selectedPaths.toList());
-            }
-          },
+          onSelected: (value) => _handleActionMenuSelected(context, ref, value, state),
           itemBuilder: (context) => [
             const PopupMenuItem(value: 'share', child: Text('Share')),
             const PopupMenuItem(value: 'info', child: Text('File Info')),
@@ -219,6 +264,40 @@ class ExplorerScreen extends ConsumerWidget {
         ),
       ],
     );
+  }
+
+  // Fase 1: Share Sheet via share_plus (single & multi-file), File
+  // Info (cuma saat tepat 1 item terpilih), dan Favorite (Fase 2,
+  // bisa multi-select).
+  Future<void> _handleActionMenuSelected(
+    BuildContext context,
+    WidgetRef ref,
+    String value,
+    ExplorerState state,
+  ) async {
+    if (value == 'share') {
+      final paths = state.selectedPaths.toList();
+      if (paths.isEmpty) return;
+      try {
+        await Share.shareXFiles(paths.map((p) => XFile(p)).toList());
+      } catch (e) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gagal membuka Share: $e')),
+        );
+      }
+    } else if (value == 'info') {
+      if (state.selectedPaths.length != 1) return;
+      final selectedPath = state.selectedPaths.first;
+      final item = state.items.firstWhere(
+        (i) => i.path == selectedPath,
+        orElse: () => throw StateError('Item tidak ditemukan: $selectedPath'),
+      );
+      if (!context.mounted) return;
+      await showFileInfoSheet(context, item);
+    } else if (value == 'favorite') {
+      ref.read(favoritesProvider.notifier).toggleMultiple(state.selectedPaths.toList());
+    }
   }
 
   // Selalu tanya konfirmasi sebelum hapus — ini perilaku BAKU, tidak
@@ -337,6 +416,72 @@ class ExplorerScreen extends ConsumerWidget {
     }
   }
 
+  // ---------------- Tap File non-pickMode: Open With / Install APK ----------------
+
+  Future<void> _handleFileTap(BuildContext context, WidgetRef ref, String path) async {
+    final nativeBridge = ref.read(nativeBridgeProvider);
+
+    if (path.toLowerCase().endsWith('.apk')) {
+      final canInstall = await nativeBridge.canInstallPackages();
+      if (!canInstall) {
+        if (!context.mounted) return;
+        final proceed = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Izin diperlukan'),
+            content: const Text('DalX butuh izin install app dari sumber tidak dikenal.'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Batal')),
+              TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Buka Settings')),
+            ],
+          ),
+        );
+        if (proceed == true) await nativeBridge.requestInstallPermission();
+        return;
+      }
+      await nativeBridge.installApk(path);
+      return;
+    }
+
+    await nativeBridge.openWith(path, mimeType: NativeBridge.mimeTypeFor(path));
+  }
+
+  // ---------------- Folder Android/data & Android/obb (dibatasi sistem) ----------------
+
+  bool _isRestrictedAndroidFolder(String? path) {
+    if (path == null) return false;
+    final normalized = path.replaceAll('\\', '/');
+    return normalized.contains('/Android/data') || normalized.contains('/Android/obb');
+  }
+
+  Widget _buildRestrictedNotice(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.lock_outline, size: 48, color: Colors.grey.shade400),
+            const SizedBox(height: 16),
+            const Text(
+              'Isi folder ini dibatasi sistem Android',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Sejak Android 11, tidak ada aplikasi (termasuk file '
+              'manager lain) yang bisa membuka isi folder ini tanpa '
+              'akses root. Ini bukan masalah pada DalX.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600, height: 1.4),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   // ---------------- File List (List View / Grid View) ----------------
 
   Widget _buildFileList(
@@ -352,11 +497,16 @@ class ExplorerScreen extends ConsumerWidget {
       return Center(child: Text('Terjadi kesalahan: ${state.errorMessage}'));
     }
     if (state.items.isEmpty) {
+      if (_isRestrictedAndroidFolder(state.currentPath)) {
+        return _buildRestrictedNotice(context);
+      }
       return const Center(child: Text('Folder ini kosong'));
     }
 
-    // Di pickMode, tap file -> kembalikan ke app pemanggil. Tap folder
-    // -> navigasi biasa. Long-press/multi-select dimatikan total.
+    // Non-pickMode: tap file (bukan folder) -> Open With/Install APK.
+    // pickMode: tap file -> kembalikan ke app pemanggil. Tap folder
+    // selalu navigasi biasa. Long-press/multi-select dimatikan total
+    // di pickMode.
     void handleTap(FileItem item) {
       if (pickMode) {
         if (item.isFolder) {
@@ -370,6 +520,8 @@ class ExplorerScreen extends ConsumerWidget {
         notifier.toggleSelection(item.path);
       } else if (item.isFolder) {
         notifier.openFolder(item.path);
+      } else {
+        _handleFileTap(context, ref, item.path);
       }
     }
 

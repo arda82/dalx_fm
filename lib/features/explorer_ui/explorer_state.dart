@@ -101,6 +101,7 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
   }
 
   bool get canGoBack => _fileEngine.canGoBack;
+  bool get atFilesystemRoot => _fileEngine.atFilesystemRoot;
   bool get hasCutPaths => _cutPaths != null && _cutPaths!.isNotEmpty;
   bool get hasPendingPaste => hasCutPaths || (_pendingCopyPaths?.isNotEmpty ?? false);
 
@@ -119,6 +120,19 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
     state = state.copyWith(isLoading: true, errorMessage: null, selectedPaths: {});
     try {
       final items = await _fileEngine.goBack();
+      state = state.copyWith(currentPath: _fileEngine.currentPath, items: items, isLoading: false);
+    } catch (e) {
+      state = state.copyWith(isLoading: false, errorMessage: e.toString());
+    }
+  }
+
+  /// Root Mode saja: naik ke folder induk asli filesystem, di luar
+  /// history ExplorerScreen ini. Lihat catatan di file_engine.dart.
+  Future<void> goToParent() async {
+    if (_fileEngine.atFilesystemRoot) return;
+    state = state.copyWith(isLoading: true, errorMessage: null, selectedPaths: {});
+    try {
+      final items = await _fileEngine.goToParent();
       state = state.copyWith(currentPath: _fileEngine.currentPath, items: items, isLoading: false);
     } catch (e) {
       state = state.copyWith(isLoading: false, errorMessage: e.toString());

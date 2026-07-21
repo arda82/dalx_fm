@@ -8,12 +8,17 @@
 // (core/storage_access), cari volume yang cocok lewat findByHint().
 // Fase 2: Favorites aktif — lewat favoritesProvider (persist via
 // SharedPreferences, lihat features/favorites/favorites_service.dart).
-// Settings menyusul di fase berikutnya sesuai roadmap.
+// Settings aktif — baru berisi toggle Root Mode (core/settings/
+// app_settings.dart), dipakai ExplorerScreen buat nentuin perilaku
+// tombol back begitu history folder habis. Isi Settings lengkap
+// (Theme, Language, Explorer defaults — ARCHITECTURE.md bagian 6)
+// tetap menyusul Fase 7.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/storage_access/storage_access.dart';
 import '../favorites/favorites_screen.dart';
+import '../settings/settings_screen.dart';
 import '../storage_overview/storage_overview_screen.dart';
 import '../task_queue/task_queue_screen.dart';
 import 'explorer_screen.dart';
@@ -113,7 +118,13 @@ class AppDrawer extends ConsumerWidget {
                   _DrawerTile(
                     icon: Icons.settings_outlined,
                     label: 'Settings',
-                    disabled: true, // aktif di Fase 7
+                    onTap: () {
+                      Navigator.pop(context);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                      );
+                    },
                   ),
                   _DrawerTile(
                     icon: Icons.info_outline,
