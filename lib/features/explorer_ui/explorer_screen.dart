@@ -1,17 +1,27 @@
+
 // features/explorer_ui/explorer_screen.dart
 //
-// Layar Explorer Sub-Fase 0b + Fase 2 (Explorer Polish), mengikuti
-// desain mockup yang disetujui:
-// - Toolbar normal: Hamburger, Judul, Search, titik-tiga (dropdown:
-//   New Folder, New File, Hidden Files toggle, List/Grid)
-// - Action mode toolbar (saat multi-select): Trash, Copy, Cut,
-//   Duplicate, Rename, titik-tiga (Share, File Info, Favorite)
-// - Long-press / tap saat sudah select mode untuk multi-select
-// - Grid View sebagai alternatif List View (Fase 2)
+// Layar Explorer Sub-Fase 0b + Fase 2 (Explorer Polish) + Fase 1
+// (pickMode — Document Picker).
+//
+// pickMode = true dipakai saat DalX dibuka lewat intent
+// ACTION_GET_CONTENT (app lain minta DalX jadi file picker-nya):
+// - Tap FILE -> kembalikan path ke app pemanggil lewat
+//   NativeBridge.returnPickedFile, lalu tutup DalX.
+// - Tap FOLDER -> navigasi biasa (buka isi folder).
+// - Semua aksi ubah filesystem (New Folder/File, Delete, Rename,
+//   Copy/Cut/Paste, Duplicate, multi-select) DIMATIKAN — picker cuma
+//   untuk memilih, bukan mengelola file.
+//
+// Toolbar normal: Hamburger, Judul, Search, titik-tiga (dropdown:
+// New Folder, New File, Hidden Files toggle, List/Grid) — menu
+// titik-tiga disederhanakan di pickMode (cuma Hidden Files & View).
+// Action mode toolbar (multi-select) sepenuhnya nonaktif di pickMode.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/models/file_item.dart';
+import '../../core/native_bridge/native_bridge.dart';
 import '../favorites/favorites_service.dart';
 import '../file_engine/file_engine.dart';
 import '../task_queue/task_queue_screen.dart';
@@ -23,7 +33,15 @@ const dalxAccent = Color(0xFF0A84FF);
 class ExplorerScreen extends ConsumerWidget {
   final String rootPath;
 
-  const ExplorerScreen({super.key, required this.rootPath});
+  /// True kalau layar ini dibuka dalam mode Document Picker (Fase 1).
+  /// Lihat catatan di atas file untuk perilaku lengkapnya.
+  final bool pickMode;
+
+  const ExplorerScreen({
+    super.key,
+    required this.rootPath,
+    this.pickMode = false,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -40,6 +58,8 @@ class ExplorerScreen extends ConsumerWidget {
       canPop: false,
       onPopInvokedWithResult: (didPop, result) {
         if (didPop) return;
+        // Di pickMode, multi-select tidak pernah aktif (lihat
+        // _buildFileList), jadi cabang ini aman diabaikan.
         if (explorerState.isSelectMode) {
           notifier.exitSelectMode();
         } else if (notifier.canGoBack) {
@@ -49,16 +69,16 @@ class ExplorerScreen extends ConsumerWidget {
         }
       },
       child: Scaffold(
-        appBar: explorerState.isSelectMode
+        appBar: (explorerState.isSelectMode && !pickMode)
             ? _buildActionModeToolbar(context, ref, explorerState, notifier)
             : _buildNormalToolbar(context, ref, explorerState, notifier),
-        drawer: const AppDrawer(),
+        drawer: pickMode ? null : const AppDrawer(),
         body: Column(
           children: [
-            if (!explorerState.isSelectMode) _buildBreadcrumb(explorerState),
-            if (!explorerState.isSelectMode) const Divider(height: 1),
-            if (notifier.hasPendingPaste) _buildPasteBar(notifier),
-            Expanded(child: _buildFileList(explorerState, notifier)),
+            if (!explorerState.isSelectMode || pickMode) _buildBreadcrumb(explorerState),
+            if (!explorerState.isSelectMode || pickMode) const Divider(height: 1),
+            if (!pickMode && notifier.hasPendingPaste) _buildPasteBar(notifier),
+            Expanded(child: _buildFileList(context, ref, explorerState, notifier)),
           ],
         ),
       ),
@@ -75,31 +95,48 @@ class ExplorerScreen extends ConsumerWidget {
   ) {
     final folderName = state.currentPath?.split('/').last ?? '';
     return AppBar(
-      leading: Builder(
-        builder: (context) => IconButton(
-          icon: const Icon(Icons.menu),
-          onPressed: () => Scaffold.of(context).openDrawer(),
-        ),
-      ),
-      title: Text(folderName.isEmpty ? 'DalX' : folderName),
+      leading: pickMode
+          ? IconButton(
+              icon: const Icon(Icons.close),
+              onPressed: () => Navigator.of(context).maybePop(),
+            )
+          : Builder(
+              builder: (context) => IconButton(
+                icon: const Icon(Icons.menu),
+                onPressed: () => Scaffold.of(context).openDrawer(),
+              ),
+            ),
+      title: Text(pickMode
+          ? 'Pilih File'
+          : (folderName.isEmpty ? 'DalX' : folderName)),
       actions: [
         IconButton(
           icon: const Icon(Icons.search),
-          onPressed: () => _showSearch(context, state, notifier),
+          onPressed: () => _showSearch(context, ref, state, notifier),
         ),
-        _MoreMenuButton(notifier: notifier, state: state),
+        _MoreMenuButton(notifier: notifier, state: state, pickMode: pickMode),
       ],
     );
   }
 
-  void _showSearch(BuildContext context, ExplorerState state, ExplorerNotifier notifier) {
+  void _showSearch(
+    BuildContext context,
+    WidgetRef ref,
+    ExplorerState state,
+    ExplorerNotifier notifier,
+  ) {
     showSearch(
       context: context,
-      delegate: _FileSearchDelegate(items: state.items, notifier: notifier),
+      delegate: _FileSearchDelegate(
+        items: state.items,
+        notifier: notifier,
+        pickMode: pickMode,
+        onPicked: (path) => _returnPickedFile(context, ref, path),
+      ),
     );
   }
 
-  // ---------------- Action Mode Toolbar ----------------
+  // ---------------- Action Mode Toolbar (nonaktif total di pickMode) ----------------
 
   PreferredSizeWidget _buildActionModeToolbar(
     BuildContext context,
@@ -276,9 +313,29 @@ class ExplorerScreen extends ConsumerWidget {
     );
   }
 
+  // ---------------- Kirim file terpilih ke app pemanggil (pickMode) ----------------
+
+  Future<void> _returnPickedFile(BuildContext context, WidgetRef ref, String path) async {
+    try {
+      await ref.read(nativeBridgeProvider).returnPickedFile(path);
+      if (context.mounted) Navigator.of(context).maybePop();
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gagal mengirim file: $e')),
+        );
+      }
+    }
+  }
+
   // ---------------- File List (List View / Grid View) ----------------
 
-  Widget _buildFileList(ExplorerState state, ExplorerNotifier notifier) {
+  Widget _buildFileList(
+    BuildContext context,
+    WidgetRef ref,
+    ExplorerState state,
+    ExplorerNotifier notifier,
+  ) {
     if (state.isLoading) {
       return const Center(child: CircularProgressIndicator(color: dalxAccent));
     }
@@ -287,6 +344,29 @@ class ExplorerScreen extends ConsumerWidget {
     }
     if (state.items.isEmpty) {
       return const Center(child: Text('Folder ini kosong'));
+    }
+
+    // Di pickMode, tap file -> kembalikan ke app pemanggil. Tap folder
+    // -> navigasi biasa. Long-press/multi-select dimatikan total.
+    void handleTap(FileItem item) {
+      if (pickMode) {
+        if (item.isFolder) {
+          notifier.openFolder(item.path);
+        } else {
+          _returnPickedFile(context, ref, item.path);
+        }
+        return;
+      }
+      if (state.isSelectMode) {
+        notifier.toggleSelection(item.path);
+      } else if (item.isFolder) {
+        notifier.openFolder(item.path);
+      }
+    }
+
+    void handleLongPress(FileItem item) {
+      if (pickMode) return; // multi-select dimatikan di pickMode
+      if (!state.isSelectMode) notifier.enterSelectMode(item.path);
     }
 
     if (state.viewMode == ViewMode.grid) {
@@ -306,17 +386,9 @@ class ExplorerScreen extends ConsumerWidget {
             return _FileGridTile(
               item: item,
               isSelected: isSelected,
-              isSelectMode: state.isSelectMode,
-              onTap: () {
-                if (state.isSelectMode) {
-                  notifier.toggleSelection(item.path);
-                } else if (item.isFolder) {
-                  notifier.openFolder(item.path);
-                }
-              },
-              onLongPress: () {
-                if (!state.isSelectMode) notifier.enterSelectMode(item.path);
-              },
+              isSelectMode: !pickMode && state.isSelectMode,
+              onTap: () => handleTap(item),
+              onLongPress: () => handleLongPress(item),
             );
           },
         ),
@@ -334,19 +406,9 @@ class ExplorerScreen extends ConsumerWidget {
           return _FileListTile(
             item: item,
             isSelected: isSelected,
-            isSelectMode: state.isSelectMode,
-            onTap: () {
-              if (state.isSelectMode) {
-                notifier.toggleSelection(item.path);
-              } else if (item.isFolder) {
-                notifier.openFolder(item.path);
-              }
-              // Membuka file (bukan folder) menyusul saat viewer/editor
-              // sudah ada di fase-fase berikutnya.
-            },
-            onLongPress: () {
-              if (!state.isSelectMode) notifier.enterSelectMode(item.path);
-            },
+            isSelectMode: !pickMode && state.isSelectMode,
+            onTap: () => handleTap(item),
+            onLongPress: () => handleLongPress(item),
           );
         },
       ),
@@ -359,16 +421,21 @@ class ExplorerScreen extends ConsumerWidget {
 class _MoreMenuButton extends StatelessWidget {
   final ExplorerNotifier notifier;
   final ExplorerState state;
+  final bool pickMode;
 
-  const _MoreMenuButton({required this.notifier, required this.state});
+  const _MoreMenuButton({required this.notifier, required this.state, this.pickMode = false});
 
   @override
   Widget build(BuildContext context) {
     return PopupMenuButton<String>(
       onSelected: (value) => _handleSelected(context, value),
       itemBuilder: (context) => [
-        const PopupMenuItem(value: 'new_folder', child: _MenuRow(icon: Icons.create_new_folder_outlined, label: 'Folder Baru')),
-        const PopupMenuItem(value: 'new_file', child: _MenuRow(icon: Icons.note_add_outlined, label: 'File Baru')),
+        // New Folder/New File cuma masuk akal saat mengelola file,
+        // bukan saat memilih file untuk app lain.
+        if (!pickMode) ...[
+          const PopupMenuItem(value: 'new_folder', child: _MenuRow(icon: Icons.create_new_folder_outlined, label: 'Folder Baru')),
+          const PopupMenuItem(value: 'new_file', child: _MenuRow(icon: Icons.note_add_outlined, label: 'File Baru')),
+        ],
         PopupMenuItem(
           value: 'toggle_hidden',
           child: _MenuRow(
@@ -384,7 +451,8 @@ class _MoreMenuButton extends StatelessWidget {
             label: state.viewMode == ViewMode.grid ? 'Tampilan List' : 'Tampilan Grid',
           ),
         ),
-        const PopupMenuItem(value: 'sort', child: _MenuRow(icon: Icons.sort, label: 'Urutkan')),
+        if (!pickMode)
+          const PopupMenuItem(value: 'sort', child: _MenuRow(icon: Icons.sort, label: 'Urutkan')),
       ],
     );
   }
@@ -465,8 +533,15 @@ class _MenuRow extends StatelessWidget {
 class _FileSearchDelegate extends SearchDelegate<void> {
   final List<FileItem> items;
   final ExplorerNotifier notifier;
+  final bool pickMode;
+  final void Function(String path)? onPicked;
 
-  _FileSearchDelegate({required this.items, required this.notifier});
+  _FileSearchDelegate({
+    required this.items,
+    required this.notifier,
+    this.pickMode = false,
+    this.onPicked,
+  });
 
   @override
   List<Widget>? buildActions(BuildContext context) => [
@@ -495,6 +570,11 @@ class _FileSearchDelegate extends SearchDelegate<void> {
               color: item.isFolder ? dalxAccent : Colors.grey),
           title: Text(item.name),
           onTap: () {
+            if (pickMode && !item.isFolder) {
+              close(context, null);
+              onPicked?.call(item.path);
+              return;
+            }
             close(context, null);
             if (item.isFolder) notifier.openFolder(item.path);
           },
