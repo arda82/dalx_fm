@@ -314,6 +314,9 @@ class ExplorerScreen extends ConsumerWidget {
       return Center(child: Text('Terjadi kesalahan: ${state.errorMessage}'));
     }
     if (state.items.isEmpty) {
+      if (_isRestrictedAndroidFolder(state.currentPath)) {
+        return _buildRestrictedNotice(context);
+      }
       return const Center(child: Text('Folder ini kosong'));
     }
 
@@ -383,6 +386,48 @@ class ExplorerScreen extends ConsumerWidget {
     }
 
     await nativeBridge.openWith(path, mimeType: NativeBridge.mimeTypeFor(path));
+  }
+
+  // Deteksi apakah [path] adalah Android/data atau Android/obb (atau
+  // subfolder di dalamnya) — folder yang isinya dibatasi total oleh
+  // Android sejak versi 11, TIDAK bisa diakses app manapun tanpa root
+  // (dikonfirmasi lewat riset: bahkan Amaze/CX File Manager/MiXplorer,
+  // yang native Java bukan Flutter, mentok di batasan yang sama begitu
+  // masuk lebih dalam — nama folder yang mereka tampilkan di permukaan
+  // itu disintesis dari daftar app ter-install, bukan hasil baca
+  // direktori beneran).
+  bool _isRestrictedAndroidFolder(String? path) {
+    if (path == null) return false;
+    final normalized = path.replaceAll('\\', '/');
+    return normalized.contains('/Android/data') || normalized.contains('/Android/obb');
+  }
+
+  Widget _buildRestrictedNotice(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.lock_outline, size: 48, color: Colors.grey.shade400),
+            const SizedBox(height: 16),
+            const Text(
+              'Isi folder ini dibatasi sistem Android',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Sejak Android 11, tidak ada aplikasi (termasuk file '
+              'manager lain) yang bisa membuka isi folder ini tanpa '
+              'akses root. Ini bukan masalah pada DalX.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600, height: 1.4),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
