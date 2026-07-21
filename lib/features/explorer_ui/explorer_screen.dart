@@ -77,8 +77,9 @@ class ExplorerScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final explorerState = ref.watch(explorerProvider);
-    final notifier = ref.read(explorerProvider.notifier);
+    final explorerState = ref.watch(explorerProvider(rootPath));
+    final notifier = ref.read(explorerProvider(rootPath).notifier);
+    
 
     if (explorerState.currentPath == null && !explorerState.isLoading) {
       WidgetsBinding.instance.addPostFrameCallback((_) {

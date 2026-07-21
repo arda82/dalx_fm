@@ -298,10 +298,14 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
   }
 }
 
-final explorerProvider =
-    StateNotifierProvider<ExplorerNotifier, ExplorerState>((ref) {
-  final fileEngine = ref.watch(fileEngineProvider);
-  final taskQueue = ref.watch(taskQueueProvider.notifier);
-  final eventBus = ref.watch(eventBusProvider);
-  return ExplorerNotifier(fileEngine, taskQueue, eventBus);
-});
+/// SATU INSTANCE PER rootPath (family) — lihat catatan panjang di
+/// file_engine.dart soal kenapa provider singleton biasa bikin state
+/// Internal Storage/SD Card/USB OTG saling menimpa.
+final explorerProvider = StateNotifierProvider.family<ExplorerNotifier, ExplorerState, String>(
+  (ref, rootPath) {
+    final fileEngine = ref.watch(fileEngineProvider(rootPath));
+    final taskQueue = ref.watch(taskQueueProvider.notifier);
+    final eventBus = ref.watch(eventBusProvider);
+    return ExplorerNotifier(fileEngine, taskQueue, eventBus);
+  },
+);

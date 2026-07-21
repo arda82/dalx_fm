@@ -305,8 +305,13 @@ class FileEngine {
   }
 }
 
-/// Provider Riverpod untuk FileEngine — satu instance dipakai bersama.
-final fileEngineProvider = Provider<FileEngine>((ref) {
+/// Provider Riverpod untuk FileEngine — SATU INSTANCE PER rootPath
+/// (family), bukan singleton. Sebelum ini singleton biasa, dan itu
+/// penyebab bug "SD Card kebuka isinya Internal Storage": history
+/// navigasi & currentPath dari kunjungan sebelumnya nyangkut ke
+/// rootPath yang beda, karena semua ExplorerScreen berbagi instance
+/// yang sama.
+final fileEngineProvider = Provider.family<FileEngine, String>((ref, rootPath) {
   final eventBus = ref.watch(eventBusProvider);
   final nativeBridge = ref.watch(nativeBridgeProvider);
   return FileEngine(eventBus, nativeBridge);
