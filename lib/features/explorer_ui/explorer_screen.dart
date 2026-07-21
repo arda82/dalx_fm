@@ -18,6 +18,7 @@
 // titik-tiga disederhanakan di pickMode (cuma Hidden Files & View).
 // Action mode toolbar (multi-select) sepenuhnya nonaktif di pickMode.
 
+import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/models/file_item.dart';
@@ -43,6 +44,14 @@ class ExplorerScreen extends ConsumerWidget {
     this.pickMode = false,
   });
 
+  void _handlePopOrExit(BuildContext context) {
+    if (Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
+    } else {
+      SystemNavigator.pop();
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final explorerState = ref.watch(explorerProvider);
@@ -65,7 +74,7 @@ class ExplorerScreen extends ConsumerWidget {
         } else if (notifier.canGoBack) {
           notifier.goBack();
         } else {
-          Navigator.of(context).maybePop();
+          _handlePopOrExit(context);
         }
       },
       child: Scaffold(
@@ -98,7 +107,7 @@ class ExplorerScreen extends ConsumerWidget {
       leading: pickMode
           ? IconButton(
               icon: const Icon(Icons.close),
-              onPressed: () => Navigator.of(context).maybePop(),
+              onPressed: () => _handlePopOrExit(context),
             )
           : Builder(
               builder: (context) => IconButton(
@@ -318,7 +327,7 @@ class ExplorerScreen extends ConsumerWidget {
   Future<void> _returnPickedFile(BuildContext context, WidgetRef ref, String path) async {
     try {
       await ref.read(nativeBridgeProvider).returnPickedFile(path);
-      if (context.mounted) Navigator.of(context).maybePop();
+      if (context.mounted) _handlePopOrExit(context);
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
