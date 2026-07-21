@@ -11,6 +11,12 @@
 // terpasang" seperti sebelumnya. Persentase dihitung otomatis dari
 // angka byte asli, bukan diketik manual — supaya progress bar dan
 // teks selalu sinkron.
+//
+// RAM real-time: Internal Storage/SD Card/USB OTG di-fetch SEKALI
+// (kapasitasnya nggak berubah tiap detik), tapi RAM di-refresh
+// berkala lewat Timer.periodic — sebelumnya RAM ikut ke-snapshot
+// cuma sekali bareng data lain lewat FutureBuilder, jadi kelihatan
+// "dummy"/diam walau device beneran pakai/lepas RAM real-time.
 
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -29,6 +35,10 @@ const _dalxAccent = Color(0xFF0A84FF);
 // tekan pertama yang baru lagi.
 const _exitPressWindow = Duration(seconds: 2);
 
+// Interval refresh RAM. 2 detik cukup responsif buat kelihatan
+// "hidup" tanpa terlalu sering manggil platform channel.
+const _ramRefreshInterval = Duration(seconds: 2);
+
 class StorageOverviewScreen extends ConsumerStatefulWidget {
   const StorageOverviewScreen({super.key});
 
@@ -38,6 +48,58 @@ class StorageOverviewScreen extends ConsumerStatefulWidget {
 
 class _StorageOverviewScreenState extends ConsumerState<StorageOverviewScreen> {
   DateTime? _lastBackPress;
+
+  _OverviewData? _data;
+  RamInfo? _ram;
+  Timer? _ramTimer;
+  String? _loadError;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadInitial();
+  }
+
+  @override
+  void dispose() {
+    _ramTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _loadInitial() async {
+    try {
+      final data = await _loadAll();
+      if (!mounted) return;
+      setState(() {
+        _data = data;
+        _ram = data.ram;
+        _loadError = null;
+      });
+      _startRamPolling();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loadError = e.toString());
+    }
+  }
+
+  void _startRamPolling() {
+    _ramTimer?.cancel();
+    _ramTimer = Timer.periodic(_ramRefreshInterval, (_) => _refreshRam());
+  }
+
+  Future<void> _refreshRam() async {
+    if (!mounted) return;
+    try {
+      final manager = ref.read(deviceInfoManagerProvider);
+      final ram = await manager.getRamInfo();
+      if (!mounted) return;
+      setState(() => _ram = ram);
+    } catch (_) {
+      // Gagal satu kali polling RAM — diamkan aja, coba lagi di
+      // siklus berikutnya. Jangan bikin seluruh layar error cuma
+      // gara-gara satu polling meleset.
+    }
+  }
 
   // StorageOverviewScreen adalah root Navigator (halaman pertama saat
   // app dibuka, lihat main.dart) — jadi ini satu-satunya tempat yang
@@ -80,60 +142,65 @@ class _StorageOverviewScreenState extends ConsumerState<StorageOverviewScreen> {
           title: const Text('Storage'),
         ),
         drawer: const AppDrawer(),
-        body: FutureBuilder(
-          future: _loadAll(ref),
-          builder: (context, snapshot) {
-            if (!snapshot.hasData) {
-              return const Center(child: CircularProgressIndicator(color: _dalxAccent));
-            }
-            final data = snapshot.data!;
-            return ListView(
-              padding: const EdgeInsets.all(14),
-              children: [
-                _StorageCard(
-                  icon: Icons.smartphone_outlined,
-                  label: 'Internal Storage',
-                  info: data.storage,
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const ExplorerScreen(
-                        rootPath: '/storage/emulated/0',
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                _buildExternalCard(
-                  context,
-                  hint: 'sd',
-                  fallbackIcon: Icons.sd_card_outlined,
-                  fallbackLabel: 'SD Card',
-                  volumes: data.removableVolumes,
-                  capacities: data.volumeCapacities,
-                  storageAccess: data.storageAccess,
-                ),
-                const SizedBox(height: 12),
-                _buildExternalCard(
-                  context,
-                  hint: 'usb',
-                  fallbackIcon: Icons.usb_outlined,
-                  fallbackLabel: 'USB OTG',
-                  volumes: data.removableVolumes,
-                  capacities: data.volumeCapacities,
-                  storageAccess: data.storageAccess,
-                ),
-                const SizedBox(height: 12),
-                _RamCard(info: data.ram),
-              ],
-            );
-          },
-        ),
+        body: _buildBody(context),
       ),
     );
   }
 
-  Future<_OverviewData> _loadAll(WidgetRef ref) async {
+  Widget _buildBody(BuildContext context) {
+    if (_loadError != null) {
+      return Center(child: Text('Terjadi kesalahan: $_loadError'));
+    }
+    final data = _data;
+    if (data == null) {
+      return const Center(child: CircularProgressIndicator(color: _dalxAccent));
+    }
+
+    return ListView(
+      padding: const EdgeInsets.all(14),
+      children: [
+        _StorageCard(
+          icon: Icons.smartphone_outlined,
+          label: 'Internal Storage',
+          info: data.storage,
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const ExplorerScreen(
+                rootPath: '/storage/emulated/0',
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        _buildExternalCard(
+          context,
+          hint: 'sd',
+          fallbackIcon: Icons.sd_card_outlined,
+          fallbackLabel: 'SD Card',
+          volumes: data.removableVolumes,
+          capacities: data.volumeCapacities,
+          storageAccess: data.storageAccess,
+        ),
+        const SizedBox(height: 12),
+        _buildExternalCard(
+          context,
+          hint: 'usb',
+          fallbackIcon: Icons.usb_outlined,
+          fallbackLabel: 'USB OTG',
+          volumes: data.removableVolumes,
+          capacities: data.volumeCapacities,
+          storageAccess: data.storageAccess,
+        ),
+        const SizedBox(height: 12),
+        // RAM dipisah dari `data` — ini yang di-refresh berkala lewat
+        // _ram, bukan snapshot statis dari _loadAll.
+        _RamCard(info: _ram ?? data.ram),
+      ],
+    );
+  }
+
+  Future<_OverviewData> _loadAll() async {
     final manager = ref.read(deviceInfoManagerProvider);
     final nativeBridge = ref.read(nativeBridgeProvider);
     final storageAccess = ref.read(storageAccessProvider);
