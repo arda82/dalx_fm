@@ -164,38 +164,6 @@ class AppDrawer extends ConsumerWidget {
     final storageAccess = ref.read(storageAccessProvider);
     final volumes = await storageAccess.queryVolumes();
 
-    // ============ DEBUG SEMENTARA — HAPUS SETELAH BUG KETEMU ============
-    if (context.mounted) {
-      await showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text('Debug: raw volumes (hint: "$hint")'),
-          content: SingleChildScrollView(
-            child: Text(
-              volumes.isEmpty
-                  ? '(kosong — getStorageVolumes() gak return apa-apa)'
-                  : volumes.map((v) {
-                      return 'label: ${v.label}\n'
-                          'path: ${v.path}\n'
-                          'isPrimary: ${v.isPrimary}\n'
-                          'isRemovable: ${v.isRemovable}\n'
-                          'state: ${v.state}\n'
-                          '---';
-                    }).join('\n'),
-              style: const TextStyle(fontSize: 11, fontFamily: 'monospace'),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Tutup'),
-            ),
-          ],
-        ),
-      );
-    }
-    // ============ END DEBUG SEMENTARA ============
-
     final match = storageAccess.findByHint(volumes, hint);
 
     if (!context.mounted) return;
