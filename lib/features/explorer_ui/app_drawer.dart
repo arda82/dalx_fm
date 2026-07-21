@@ -160,6 +160,27 @@ class AppDrawer extends ConsumerWidget {
   }) async {
     final storageAccess = ref.read(storageAccessProvider);
     final volumes = await storageAccess.queryVolumes();
+
+    // --- DEBUG SEMENTARA: hapus setelah bug ketemu ---
+    if (context.mounted) {
+      await showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('Debug: raw volumes ($hint)'),
+          content: SingleChildScrollView(
+            child: Text(
+              volumes.map((v) =>
+                'label: ${v.label}\npath: ${v.path}\nisPrimary: ${v.isPrimary}\nisRemovable: ${v.isRemovable}\nstate: ${v.state}\n---'
+              ).join('\n'),
+              style: const TextStyle(fontSize: 11, fontFamily: 'monospace'),
+            ),
+          ),
+          actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Tutup'))],
+        ),
+      );
+    }
+    // --- END DEBUG ---
+
     final match = storageAccess.findByHint(volumes, hint);
 
     if (!context.mounted) return;
@@ -171,6 +192,12 @@ class AppDrawer extends ConsumerWidget {
       );
       return;
     }
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => ExplorerScreen(rootPath: match.path)),
+    );
+  }
 
     Navigator.push(
       context,
