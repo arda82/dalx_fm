@@ -20,6 +20,9 @@ dependencies:
   # Share Sheet — Fase 1
   share_plus: ^10.1.2
 
+  # Persist Favorites lintas sesi
+  shared_preferences: ^2.2.3
+
   # Ikon Material Design tambahan (opsional, dipakai bertahap)
   cupertino_icons: ^1.0.8
 

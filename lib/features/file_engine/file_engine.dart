@@ -107,6 +107,67 @@ class FileEngine {
     return refresh();
   }
 
+  /// Membuat file kosong baru bernama [name] di folder yang sedang
+  /// dibuka. Fase 2 (New File) — isi/edit file menyusul di code_editor
+  /// (Fase 4).
+  Future<List<FileItem>> createFile(String name) async {
+    final path = currentPath;
+    if (path == null) {
+      throw StateError('Belum ada folder yang dibuka');
+    }
+    final newFile = File('$path${Platform.pathSeparator}$name');
+    if (await newFile.exists()) {
+      throw FileSystemException('File dengan nama itu sudah ada', newFile.path);
+    }
+    await newFile.create();
+    _eventBus.fire(FileCreated(newFile.path, isFolder: false));
+    return refresh();
+  }
+
+  /// Menduplikasi file/folder di [path] ke folder yang sama, nama
+  /// otomatis "nama (1)", "nama (2)", dst. Fase 2 (Duplicate).
+  Future<List<FileItem>> duplicate(String path) async {
+    final isDir = await Directory(path).exists();
+    final parentPath = path.substring(0, path.lastIndexOf(Platform.pathSeparator));
+    final originalName = path.split(Platform.pathSeparator).last;
+
+    final ext = isDir
+        ? ''
+        : (originalName.contains('.') ? '.${originalName.split('.').last}' : '');
+    final baseName = isDir
+        ? originalName
+        : (ext.isEmpty ? originalName : originalName.substring(0, originalName.length - ext.length));
+
+    var counter = 1;
+    String newPath;
+    do {
+      newPath = '$parentPath${Platform.pathSeparator}$baseName ($counter)$ext';
+      counter++;
+    } while (await File(newPath).exists() || await Directory(newPath).exists());
+
+    if (isDir) {
+      await _copyDirectoryRecursive(Directory(path), Directory(newPath));
+    } else {
+      await File(path).copy(newPath);
+    }
+
+    _eventBus.fire(FileCreated(newPath, isFolder: isDir));
+    return refresh();
+  }
+
+  Future<void> _copyDirectoryRecursive(Directory source, Directory destination) async {
+    await destination.create(recursive: true);
+    await for (final entity in source.list(recursive: false)) {
+      final name = entity.path.split(Platform.pathSeparator).last;
+      final newPath = '${destination.path}${Platform.pathSeparator}$name';
+      if (entity is Directory) {
+        await _copyDirectoryRecursive(entity, Directory(newPath));
+      } else if (entity is File) {
+        await entity.copy(newPath);
+      }
+    }
+  }
+
   Future<List<FileItem>> _listFolder(Directory dir) async {
     // Sebagian folder (paling sering Android/data & Android/obb) bisa
     // gagal dibaca TOTAL lewat dart:io walau MANAGE_EXTERNAL_STORAGE

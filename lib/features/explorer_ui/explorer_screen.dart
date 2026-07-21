@@ -1,37 +1,29 @@
 // features/explorer_ui/explorer_screen.dart
 //
-// Layar Explorer Sub-Fase 0b, mengikuti desain mockup yang disetujui:
+// Layar Explorer Sub-Fase 0b + Fase 2 (Explorer Polish), mengikuti
+// desain mockup yang disetujui:
 // - Toolbar normal: Hamburger, Judul, Search, titik-tiga (dropdown:
-//   New Folder, New File, Hidden Files toggle, List/Grid — Grid
-//   sendiri baru aktif di Fase 2, placeholder dulu di sini)
+//   New Folder, New File, Hidden Files toggle, List/Grid)
 // - Action mode toolbar (saat multi-select): Trash, Copy, Cut,
-//   Rename, titik-tiga (Share, File Info)
+//   Duplicate, Rename, titik-tiga (Share, File Info, Favorite)
 // - Long-press / tap saat sudah select mode untuk multi-select
-//
-// Fase 1: Share (action mode titik-tiga) aktif pakai share_plus.
-// Tap file (bukan folder) sekarang aktif juga: Open With, Install
-// APK (deteksi .apk), atau kembalikan file ke app pemanggil kalau
-// DalX dibuka dalam pickMode (Document Picker). Lihat _handleFileTap.
+// - Grid View sebagai alternatif List View (Fase 2)
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:share_plus/share_plus.dart';
 import '../../core/models/file_item.dart';
-import '../../core/native_bridge/native_bridge.dart';
+import '../favorites/favorites_service.dart';
 import '../file_engine/file_engine.dart';
 import '../task_queue/task_queue_screen.dart';
 import 'app_drawer.dart';
 import 'explorer_state.dart';
-import 'file_info_sheet.dart';
 
 const dalxAccent = Color(0xFF0A84FF);
 
 class ExplorerScreen extends ConsumerWidget {
   final String rootPath;
-  final bool pickMode;
 
-  const ExplorerScreen({super.key, required this.rootPath, this.pickMode = false});
+  const ExplorerScreen({super.key, required this.rootPath});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -52,18 +44,8 @@ class ExplorerScreen extends ConsumerWidget {
           notifier.exitSelectMode();
         } else if (notifier.canGoBack) {
           notifier.goBack();
-        } else if (Navigator.of(context).canPop()) {
-          // Masih ada route lain di atas ExplorerScreen ini (mis. dibuka
-          // dari drawer "Internal Storage" di atas Storage Overview) —
-          // pop route itu, bukan maybePop() yang percuma karena
-          // canPop:false bikin dia diam saja (root cause ANR "back
-          // macet total" waktu sudah di folder terluar).
-          Navigator.of(context).pop();
         } else {
-          // ExplorerScreen ini adalah root (mis. dibuka langsung dari
-          // main.dart tanpa route di atasnya) — keluar app, bukan
-          // dibiarkan diam yang bikin sistem anggap app hang.
-          SystemNavigator.pop();
+          Navigator.of(context).maybePop();
         }
       },
       child: Scaffold(
@@ -76,7 +58,7 @@ class ExplorerScreen extends ConsumerWidget {
             if (!explorerState.isSelectMode) _buildBreadcrumb(explorerState),
             if (!explorerState.isSelectMode) const Divider(height: 1),
             if (notifier.hasPendingPaste) _buildPasteBar(notifier),
-            Expanded(child: _buildFileList(context, ref, explorerState, notifier)),
+            Expanded(child: _buildFileList(explorerState, notifier)),
           ],
         ),
       ),
@@ -125,6 +107,10 @@ class ExplorerScreen extends ConsumerWidget {
     ExplorerState state,
     ExplorerNotifier notifier,
   ) {
+    final favorites = ref.watch(favoritesProvider);
+    final allFavorited = state.selectedPaths.isNotEmpty &&
+        state.selectedPaths.every(favorites.contains);
+
     return AppBar(
       leading: IconButton(
         icon: const Icon(Icons.close),
@@ -132,7 +118,7 @@ class ExplorerScreen extends ConsumerWidget {
       ),
       title: Text('${state.selectedPaths.length} dipilih'),
       actions: [
-        // Urutan sesuai mockup: Trash, Copy, Cut, Rename, titik-tiga
+        // Urutan sesuai mockup: Trash, Copy, Cut, Duplicate, Rename, titik-tiga
         IconButton(
           icon: const Icon(Icons.delete_outline, color: Colors.red),
           onPressed: () => _confirmDelete(context, notifier, state),
@@ -156,51 +142,37 @@ class ExplorerScreen extends ConsumerWidget {
           },
         ),
         IconButton(
+          icon: const Icon(Icons.content_copy_outlined),
+          tooltip: 'Duplicate',
+          onPressed: () => notifier.duplicateSelected(),
+        ),
+        IconButton(
           icon: const Icon(Icons.drive_file_rename_outline),
           onPressed: state.selectedPaths.length == 1
               ? () => _showRenameDialog(context, notifier, state.selectedPaths.first)
               : null,
         ),
         PopupMenuButton<String>(
-          onSelected: (value) => _handleActionMenuSelected(context, value, state),
-          itemBuilder: (context) => const [
-            PopupMenuItem(value: 'share', child: Text('Share')),
-            PopupMenuItem(value: 'info', child: Text('File Info')),
+          onSelected: (value) {
+            if (value == 'share') {
+              // Share sheet — menyusul Fase 1 (Android Integration)
+            } else if (value == 'info') {
+              // File Info bottom sheet — menyusul di iterasi berikutnya 0b
+            } else if (value == 'favorite') {
+              ref.read(favoritesProvider.notifier).toggleMultiple(state.selectedPaths.toList());
+            }
+          },
+          itemBuilder: (context) => [
+            const PopupMenuItem(value: 'share', child: Text('Share')),
+            const PopupMenuItem(value: 'info', child: Text('File Info')),
+            PopupMenuItem(
+              value: 'favorite',
+              child: Text(allFavorited ? 'Hapus Favorit' : 'Tambah Favorit'),
+            ),
           ],
         ),
       ],
     );
-  }
-
-  // Fase 1: Share Sheet via share_plus. Mendukung single & multi-file
-  // (semua item yang sedang terpilih di action mode).
-  Future<void> _handleActionMenuSelected(
-    BuildContext context,
-    String value,
-    ExplorerState state,
-  ) async {
-    if (value == 'share') {
-      final paths = state.selectedPaths.toList();
-      if (paths.isEmpty) return;
-      try {
-        await Share.shareXFiles(paths.map((p) => XFile(p)).toList());
-      } catch (e) {
-        if (!context.mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Gagal membuka Share: $e')),
-        );
-      }
-    } else if (value == 'info') {
-      // File Info hanya berlaku saat tepat 1 item terpilih.
-      if (state.selectedPaths.length != 1) return;
-      final selectedPath = state.selectedPaths.first;
-      final item = state.items.firstWhere(
-        (i) => i.path == selectedPath,
-        orElse: () => throw StateError('Item tidak ditemukan: $selectedPath'),
-      );
-      if (!context.mounted) return;
-      await showFileInfoSheet(context, item);
-    }
   }
 
   // Selalu tanya konfirmasi sebelum hapus — ini perilaku BAKU, tidak
@@ -304,9 +276,9 @@ class ExplorerScreen extends ConsumerWidget {
     );
   }
 
-  // ---------------- File List ----------------
+  // ---------------- File List (List View / Grid View) ----------------
 
-  Widget _buildFileList(BuildContext context, WidgetRef ref, ExplorerState state, ExplorerNotifier notifier) {
+  Widget _buildFileList(ExplorerState state, ExplorerNotifier notifier) {
     if (state.isLoading) {
       return const Center(child: CircularProgressIndicator(color: dalxAccent));
     }
@@ -314,10 +286,41 @@ class ExplorerScreen extends ConsumerWidget {
       return Center(child: Text('Terjadi kesalahan: ${state.errorMessage}'));
     }
     if (state.items.isEmpty) {
-      if (_isRestrictedAndroidFolder(state.currentPath)) {
-        return _buildRestrictedNotice(context);
-      }
       return const Center(child: Text('Folder ini kosong'));
+    }
+
+    if (state.viewMode == ViewMode.grid) {
+      return RefreshIndicator(
+        color: dalxAccent,
+        onRefresh: notifier.refresh,
+        child: GridView.builder(
+          padding: const EdgeInsets.all(8),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 3,
+            childAspectRatio: 0.85,
+          ),
+          itemCount: state.items.length,
+          itemBuilder: (context, index) {
+            final item = state.items[index];
+            final isSelected = state.selectedPaths.contains(item.path);
+            return _FileGridTile(
+              item: item,
+              isSelected: isSelected,
+              isSelectMode: state.isSelectMode,
+              onTap: () {
+                if (state.isSelectMode) {
+                  notifier.toggleSelection(item.path);
+                } else if (item.isFolder) {
+                  notifier.openFolder(item.path);
+                }
+              },
+              onLongPress: () {
+                if (!state.isSelectMode) notifier.enterSelectMode(item.path);
+              },
+            );
+          },
+        ),
+      );
     }
 
     return RefreshIndicator(
@@ -337,95 +340,15 @@ class ExplorerScreen extends ConsumerWidget {
                 notifier.toggleSelection(item.path);
               } else if (item.isFolder) {
                 notifier.openFolder(item.path);
-              } else {
-                _handleFileTap(context, ref, item.path);
               }
+              // Membuka file (bukan folder) menyusul saat viewer/editor
+              // sudah ada di fase-fase berikutnya.
             },
             onLongPress: () {
               if (!state.isSelectMode) notifier.enterSelectMode(item.path);
             },
           );
         },
-      ),
-    );
-  }
-
-  // Fase 1: tap file (bukan folder). Tiga jalur:
-  // - pickMode (DalX dipanggil sebagai Document Picker) → kembalikan
-  //   file terpilih ke app pemanggil lalu tutup DalX
-  // - file .apk → cek izin install, lalu trigger installer sistem
-  // - file lain → Open With (chooser Android biasa)
-  Future<void> _handleFileTap(BuildContext context, WidgetRef ref, String path) async {
-    final nativeBridge = ref.read(nativeBridgeProvider);
-
-    if (pickMode) {
-      await nativeBridge.returnPickedFile(path);
-      return;
-    }
-
-    if (path.toLowerCase().endsWith('.apk')) {
-      final canInstall = await nativeBridge.canInstallPackages();
-      if (!canInstall) {
-        if (!context.mounted) return;
-        final proceed = await showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('Izin diperlukan'),
-            content: const Text('DalX butuh izin install app dari sumber tidak dikenal.'),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Batal')),
-              TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Buka Settings')),
-            ],
-          ),
-        );
-        if (proceed == true) await nativeBridge.requestInstallPermission();
-        return;
-      }
-      await nativeBridge.installApk(path);
-      return;
-    }
-
-    await nativeBridge.openWith(path, mimeType: NativeBridge.mimeTypeFor(path));
-  }
-
-  // Deteksi apakah [path] adalah Android/data atau Android/obb (atau
-  // subfolder di dalamnya) — folder yang isinya dibatasi total oleh
-  // Android sejak versi 11, TIDAK bisa diakses app manapun tanpa root
-  // (dikonfirmasi lewat riset: bahkan Amaze/CX File Manager/MiXplorer,
-  // yang native Java bukan Flutter, mentok di batasan yang sama begitu
-  // masuk lebih dalam — nama folder yang mereka tampilkan di permukaan
-  // itu disintesis dari daftar app ter-install, bukan hasil baca
-  // direktori beneran).
-  bool _isRestrictedAndroidFolder(String? path) {
-    if (path == null) return false;
-    final normalized = path.replaceAll('\\', '/');
-    return normalized.contains('/Android/data') || normalized.contains('/Android/obb');
-  }
-
-  Widget _buildRestrictedNotice(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.lock_outline, size: 48, color: Colors.grey.shade400),
-            const SizedBox(height: 16),
-            const Text(
-              'Isi folder ini dibatasi sistem Android',
-              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Sejak Android 11, tidak ada aplikasi (termasuk file '
-              'manager lain) yang bisa membuka isi folder ini tanpa '
-              'akses root. Ini bukan masalah pada DalX.',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600, height: 1.4),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -454,6 +377,13 @@ class _MoreMenuButton extends StatelessWidget {
             active: state.showHidden,
           ),
         ),
+        PopupMenuItem(
+          value: 'toggle_view',
+          child: _MenuRow(
+            icon: state.viewMode == ViewMode.grid ? Icons.grid_view : Icons.view_list,
+            label: state.viewMode == ViewMode.grid ? 'Tampilan List' : 'Tampilan Grid',
+          ),
+        ),
         const PopupMenuItem(value: 'sort', child: _MenuRow(icon: Icons.sort, label: 'Urutkan')),
       ],
     );
@@ -466,12 +396,14 @@ class _MoreMenuButton extends StatelessWidget {
         if (name != null && name.isNotEmpty) await notifier.createFolder(name);
         break;
       case 'new_file':
-        // Pembuatan file kosong — opsional sesuai daftar fitur core,
-        // implementasi penuh menyusul bersama code_editor (Fase 4)
-        // supaya file baru bisa langsung dibuka untuk diedit.
+        final name = await _promptName(context, 'File Baru', 'Nama file (mis. catatan.txt)');
+        if (name != null && name.isNotEmpty) await notifier.createFile(name);
         break;
       case 'toggle_hidden':
         notifier.toggleShowHidden();
+        break;
+      case 'toggle_view':
+        notifier.toggleViewMode();
         break;
       case 'sort':
         _showSortMenu(context);
@@ -572,7 +504,7 @@ class _FileSearchDelegate extends SearchDelegate<void> {
   }
 }
 
-// ---------------- File List Tile ----------------
+// ---------------- File List Tile (List View) ----------------
 
 class _FileListTile extends StatelessWidget {
   final FileItem item;
@@ -629,5 +561,85 @@ class _FileListTile extends StatelessWidget {
     if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
     if (bytes < 1024 * 1024 * 1024) return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
     return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
+  }
+}
+
+// ---------------- File Grid Tile (Grid View — Fase 2) ----------------
+
+class _FileGridTile extends StatelessWidget {
+  final FileItem item;
+  final bool isSelected;
+  final bool isSelectMode;
+  final VoidCallback onTap;
+  final VoidCallback onLongPress;
+
+  const _FileGridTile({
+    required this.item,
+    required this.isSelected,
+    required this.isSelectMode,
+    required this.onTap,
+    required this.onLongPress,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      onLongPress: onLongPress,
+      child: Container(
+        decoration: BoxDecoration(
+          color: isSelected ? dalxAccent.withOpacity(0.12) : null,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Stack(
+          children: [
+            Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  item.isFolder ? Icons.folder : _iconForExtension(item.extension),
+                  size: 40,
+                  color: item.isFolder ? dalxAccent : Colors.grey,
+                ),
+                const SizedBox(height: 6),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: Text(
+                    item.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 11),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ],
+            ),
+            if (isSelectMode)
+              Positioned(
+                top: 2,
+                right: 2,
+                child: Icon(
+                  isSelected ? Icons.check_circle : Icons.circle_outlined,
+                  size: 16,
+                  color: isSelected ? dalxAccent : Colors.grey,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  IconData _iconForExtension(String ext) {
+    const imageExts = {'jpg', 'jpeg', 'png', 'gif', 'webp'};
+    const docExts = {'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'};
+    const archiveExts = {'zip', 'rar', '7z', 'tar', 'gz'};
+    const codeExts = {'dart', 'py', 'java', 'c', 'cpp', 'js', 'ts'};
+
+    if (imageExts.contains(ext)) return Icons.image_outlined;
+    if (docExts.contains(ext)) return Icons.description_outlined;
+    if (archiveExts.contains(ext)) return Icons.folder_zip_outlined;
+    if (codeExts.contains(ext)) return Icons.code;
+    return Icons.insert_drive_file_outlined;
   }
 }

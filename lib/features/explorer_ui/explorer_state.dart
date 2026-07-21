@@ -1,13 +1,14 @@
 // features/explorer_ui/explorer_state.dart
 //
-// State layar Explorer: daftar file, path saat ini, dan multi-select
-// (Sub-Fase 0b). explorer_ui TIDAK memanggil file_engine atau
-// task_queue secara langsung untuk tahu kapan harus refresh — dia
-// dengar event lewat event bus (lihat ARCHITECTURE.md bagian 3).
+// State layar Explorer: daftar file, path saat ini, multi-select,
+// dan view mode (List/Grid — Fase 2). explorer_ui TIDAK memanggil
+// file_engine atau task_queue secara langsung untuk tahu kapan harus
+// refresh — dia dengar event lewat event bus (lihat ARCHITECTURE.md
+// bagian 3).
 //
 // Operasi Copy/Move/Delete di sini memanggil TaskQueue (bukan
 // dart:io langsung) — file_engine cuma untuk operasi ringan (New
-// Folder, Rename) dan navigasi.
+// Folder, New File, Rename, Duplicate) dan navigasi.
 
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -17,6 +18,8 @@ import '../../core/models/file_item.dart';
 import '../file_engine/file_engine.dart';
 import '../task_queue/task_queue.dart';
 
+enum ViewMode { list, grid }
+
 class ExplorerState {
   final String? currentPath;
   final List<FileItem> items;
@@ -25,6 +28,7 @@ class ExplorerState {
   final Set<String> selectedPaths;
   final bool showHidden;
   final SortMode sortMode;
+  final ViewMode viewMode;
 
   const ExplorerState({
     this.currentPath,
@@ -34,6 +38,7 @@ class ExplorerState {
     this.selectedPaths = const {},
     this.showHidden = false,
     this.sortMode = SortMode.name,
+    this.viewMode = ViewMode.list,
   });
 
   bool get isSelectMode => selectedPaths.isNotEmpty;
@@ -46,6 +51,7 @@ class ExplorerState {
     Set<String>? selectedPaths,
     bool? showHidden,
     SortMode? sortMode,
+    ViewMode? viewMode,
   }) {
     return ExplorerState(
       currentPath: currentPath ?? this.currentPath,
@@ -55,6 +61,7 @@ class ExplorerState {
       selectedPaths: selectedPaths ?? this.selectedPaths,
       showHidden: showHidden ?? this.showHidden,
       sortMode: sortMode ?? this.sortMode,
+      viewMode: viewMode ?? this.viewMode,
     );
   }
 }
@@ -71,8 +78,8 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
   ExplorerNotifier(this._fileEngine, this._taskQueue, DalXEventBus eventBus)
       : super(const ExplorerState()) {
     // explorer_ui cukup dengar event — tidak perlu tahu modul mana
-    // yang memicunya (file_engine untuk navigasi/rename/create,
-    // TaskQueue untuk copy/move/delete yang lebih berat).
+    // yang memicunya (file_engine untuk navigasi/rename/create/
+    // duplicate, TaskQueue untuk copy/move/delete yang lebih berat).
     eventBus.stream.whereEventType<FolderOpened>().listen((_) {
       _syncFromCurrentFolder();
     });
@@ -148,7 +155,8 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
     state = state.copyWith(selectedPaths: {});
   }
 
-  // ---------------- New Folder & Rename (via file_engine) ----------------
+  // ---------------- New Folder / New File / Rename / Duplicate ----------------
+  // (via file_engine — operasi ringan, bukan lewat TaskQueue)
 
   Future<void> createFolder(String name) async {
     state = state.copyWith(isLoading: true, errorMessage: null);
@@ -160,11 +168,39 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
     }
   }
 
+  Future<void> createFile(String name) async {
+    state = state.copyWith(isLoading: true, errorMessage: null);
+    try {
+      final items = await _fileEngine.createFile(name);
+      state = state.copyWith(items: items, isLoading: false);
+    } catch (e) {
+      state = state.copyWith(isLoading: false, errorMessage: e.toString());
+    }
+  }
+
   Future<void> renameItem(String oldPath, String newName) async {
     state = state.copyWith(isLoading: true, errorMessage: null);
     try {
       final items = await _fileEngine.rename(oldPath, newName);
       state = state.copyWith(items: items, isLoading: false, selectedPaths: {});
+    } catch (e) {
+      state = state.copyWith(isLoading: false, errorMessage: e.toString());
+    }
+  }
+
+  /// Menduplikasi semua item yang sedang terpilih (Fase 2 — Duplicate).
+  /// Dijalankan satu-satu lewat file_engine (bukan TaskQueue) karena
+  /// termasuk operasi ringan, sama seperti Rename/New Folder.
+  Future<void> duplicateSelected() async {
+    final paths = state.selectedPaths.toList();
+    if (paths.isEmpty) return;
+    state = state.copyWith(selectedPaths: {}, isLoading: true, errorMessage: null);
+    try {
+      var items = state.items;
+      for (final path in paths) {
+        items = await _fileEngine.duplicate(path);
+      }
+      state = state.copyWith(items: items, isLoading: false);
     } catch (e) {
       state = state.copyWith(isLoading: false, errorMessage: e.toString());
     }
@@ -214,7 +250,7 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
     }
   }
 
-  // ---------------- Hidden Files & Sort ----------------
+  // ---------------- Hidden Files, Sort & View Mode ----------------
 
   void toggleShowHidden() {
     _fileEngine.showHidden = !_fileEngine.showHidden;
@@ -226,6 +262,13 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
     _fileEngine.sortMode = mode;
     state = state.copyWith(sortMode: mode);
     refresh();
+  }
+
+  /// Toggle List View <-> Grid View (Fase 2 — Explorer Polish).
+  void toggleViewMode() {
+    state = state.copyWith(
+      viewMode: state.viewMode == ViewMode.list ? ViewMode.grid : ViewMode.list,
+    );
   }
 
   // Dipanggil saat ada event yang mengindikasikan isi folder berubah.
