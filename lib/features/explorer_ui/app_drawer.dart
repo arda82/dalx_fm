@@ -9,10 +9,13 @@
 // Fase 2: Favorites aktif — lewat favoritesProvider (persist via
 // SharedPreferences, lihat features/favorites/favorites_service.dart).
 // Settings aktif — baru berisi toggle Root Mode (core/settings/
-// app_settings.dart), dipakai ExplorerScreen buat nentuin perilaku
-// tombol back begitu history folder habis. Isi Settings lengkap
-// (Theme, Language, Explorer defaults — ARCHITECTURE.md bagian 6)
-// tetap menyusul Fase 7.
+// app_settings.dart). Isi Settings lengkap menyusul Fase 7.
+//
+// !!! DEBUG SEMENTARA !!! _openExternalStorage saat ini nampilin
+// dialog isi mentah semua volume (label/path/isPrimary/isRemovable/
+// state) sebelum navigasi — buat diagnosa kenapa SD Card/USB OTG
+// kebuka isinya Internal Storage. HAPUS blok "DEBUG SEMENTARA" di
+// bawah begitu bug ketemu, jangan sampai kebawa ke rilis.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -161,25 +164,37 @@ class AppDrawer extends ConsumerWidget {
     final storageAccess = ref.read(storageAccessProvider);
     final volumes = await storageAccess.queryVolumes();
 
-    // --- DEBUG SEMENTARA: hapus setelah bug ketemu ---
+    // ============ DEBUG SEMENTARA — HAPUS SETELAH BUG KETEMU ============
     if (context.mounted) {
       await showDialog(
         context: context,
         builder: (context) => AlertDialog(
-          title: Text('Debug: raw volumes ($hint)'),
+          title: Text('Debug: raw volumes (hint: "$hint")'),
           content: SingleChildScrollView(
             child: Text(
-              volumes.map((v) =>
-                'label: ${v.label}\npath: ${v.path}\nisPrimary: ${v.isPrimary}\nisRemovable: ${v.isRemovable}\nstate: ${v.state}\n---'
-              ).join('\n'),
+              volumes.isEmpty
+                  ? '(kosong — getStorageVolumes() gak return apa-apa)'
+                  : volumes.map((v) {
+                      return 'label: ${v.label}\n'
+                          'path: ${v.path}\n'
+                          'isPrimary: ${v.isPrimary}\n'
+                          'isRemovable: ${v.isRemovable}\n'
+                          'state: ${v.state}\n'
+                          '---';
+                    }).join('\n'),
               style: const TextStyle(fontSize: 11, fontFamily: 'monospace'),
             ),
           ),
-          actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Tutup'))],
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Tutup'),
+            ),
+          ],
         ),
       );
     }
-    // --- END DEBUG ---
+    // ============ END DEBUG SEMENTARA ============
 
     final match = storageAccess.findByHint(volumes, hint);
 
@@ -192,12 +207,6 @@ class AppDrawer extends ConsumerWidget {
       );
       return;
     }
-
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => ExplorerScreen(rootPath: match.path)),
-    );
-  }
 
     Navigator.push(
       context,
