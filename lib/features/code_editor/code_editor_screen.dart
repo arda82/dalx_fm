@@ -6,22 +6,26 @@
 // yang wajib dibuat sendiri, itu yang ada di _FindReplacePanel di
 // bawah.
 //
-// Selection Toolbar (Copy/Cut/Paste/Select All) muncul otomatis
-// pas long-press teks yang disorot — logic-nya juga sudah ada di
-// re_editor lewat MobileSelectionToolbarController, kita cuma
-// suplai builder isi popup-nya (_buildSelectionToolbar). Select
+// --- AppBar minimal ---
+// Toolbar atas SENGAJA cuma nampilin nama file + path (di bawahnya,
+// kecil) + titik biru kalau ada perubahan belum disimpan. SEMUA aksi
+// (Cari & Ganti, Select All, Indent, Outdent, Word Wrap, Undo, Redo,
+// Save) dipindah ke menu titik-tiga (More) di kanan — supaya toolbar
+// atas tetap ringkas dan nggak menutupi baris pertama kode.
+//
+// --- Selection Toolbar (Copy/Cut/Paste/Select All) ---
+// Muncul otomatis pas long-press teks yang disorot — logic-nya sudah
+// ada di re_editor lewat MobileSelectionToolbarController, kita cuma
+// suplai builder isi popup-nya (_buildSelectionToolbar), dibungkus
+// Theme gelap biar nggak putih-menyala di atas editor gelap. Select
 // manual (drag) dan replace/delete teks yang disorot (ketik di
-// atasnya / backspace) sudah otomatis dari re_editor, tidak perlu
-// kode tambahan.
+// atasnya / backspace) sudah otomatis dari re_editor.
 //
 // Save ke file lewat dart:io langsung (operasi ringan seperti
-// Rename di file_engine, BUKAN lewat TaskQueue — sesuai pembagian
-// yang sudah ada: TaskQueue untuk operasi berat Copy/Move/Delete).
+// Rename di file_engine, BUKAN lewat TaskQueue).
 //
-// File berukuran > 3 MB dibuka read-only (bukan diblokir total) —
-// TextField-based editor bisa lag di teks sangat panjang; ambang
-// batas ini konservatif dan bisa dinaikkan kalau di device asli
-// ternyata masih lancar di ukuran lebih besar.
+// File berukuran > 3 MB dibuka read-only — TextField-based editor
+// bisa lag di teks sangat panjang.
 
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -31,6 +35,8 @@ import 'language_detector.dart';
 
 const _dalxAccent = Color(0xFF0A84FF);
 const _editorBackground = Color(0xFF1E1E1E);
+const _panelBackground = Color(0xFF2A2A2A);
+const _inputFillColor = Color(0xFF3A3A3A);
 const _maxEditableSizeBytes = 3 * 1024 * 1024; // 3 MB
 
 class CodeEditorScreen extends StatefulWidget {
@@ -51,6 +57,7 @@ class _CodeEditorScreenState extends State<CodeEditorScreen> {
   bool _isSaving = false;
   bool _hasUnsavedChanges = false;
   bool _readOnlyTooLarge = false;
+  bool _wordWrap = false;
   String? _errorMessage;
   String _originalText = '';
 
@@ -151,13 +158,87 @@ class _CodeEditorScreenState extends State<CodeEditorScreen> {
     return fileName.substring(dotIndex + 1).toLowerCase();
   }
 
+  String get _parentPath {
+    final idx = widget.path.lastIndexOf('/');
+    return idx <= 0 ? '/' : widget.path.substring(0, idx);
+  }
+
+  // ---------------- Menu More (semua aksi toolbar) ----------------
+
+  void _handleMenuAction(String value) {
+    switch (value) {
+      case 'find':
+        _findController.findMode();
+        break;
+      case 'select_all':
+        _controller.selectAll();
+        break;
+      case 'indent':
+        _controller.applyIndent();
+        break;
+      case 'outdent':
+        _controller.applyOutdent();
+        break;
+      case 'word_wrap':
+        setState(() => _wordWrap = !_wordWrap);
+        break;
+      case 'undo':
+        if (_controller.canUndo) _controller.undo();
+        break;
+      case 'redo':
+        if (_controller.canRedo) _controller.redo();
+        break;
+      case 'save':
+        _save();
+        break;
+    }
+  }
+
+  List<PopupMenuEntry<String>> _buildMenuItems() {
+    final canEdit = !_readOnlyTooLarge;
+    return [
+      const PopupMenuItem(value: 'find', child: _MenuRow(icon: Icons.search, label: 'Cari & Ganti')),
+      const PopupMenuItem(value: 'select_all', child: _MenuRow(icon: Icons.select_all, label: 'Select All')),
+      const PopupMenuDivider(height: 8),
+      PopupMenuItem(
+        value: 'indent',
+        enabled: canEdit,
+        child: _MenuRow(icon: Icons.format_indent_increase, label: 'Indent', dimmed: !canEdit),
+      ),
+      PopupMenuItem(
+        value: 'outdent',
+        enabled: canEdit,
+        child: _MenuRow(icon: Icons.format_indent_decrease, label: 'Outdent', dimmed: !canEdit),
+      ),
+      PopupMenuItem(
+        value: 'word_wrap',
+        child: _MenuRow(icon: Icons.wrap_text, label: 'Word Wrap', active: _wordWrap),
+      ),
+      const PopupMenuDivider(height: 8),
+      PopupMenuItem(
+        value: 'undo',
+        enabled: canEdit && _controller.canUndo,
+        child: _MenuRow(icon: Icons.undo, label: 'Undo', dimmed: !(canEdit && _controller.canUndo)),
+      ),
+      PopupMenuItem(
+        value: 'redo',
+        enabled: canEdit && _controller.canRedo,
+        child: _MenuRow(icon: Icons.redo, label: 'Redo', dimmed: !(canEdit && _controller.canRedo)),
+      ),
+      PopupMenuItem(
+        value: 'save',
+        enabled: canEdit && !_isSaving,
+        child: _MenuRow(icon: Icons.save_outlined, label: 'Save', dimmed: !(canEdit && !_isSaving)),
+      ),
+    ];
+  }
+
   // ---------------- Selection Toolbar (Copy/Cut/Paste/Select All) ----------------
   //
   // Dipanggil re_editor sendiri lewat MobileSelectionToolbarController
-  // begitu user long-press teks (baik ada seleksi maupun cuma taruh
-  // kursor). Kita cuma nentuin tombol apa saja yang relevan buat
-  // kondisi saat itu — semua aksinya (copy/cut/paste/selectAll) sudah
-  // ada di CodeLineEditingController, tidak perlu implementasi manual.
+  // begitu user long-press teks. Dibungkus Theme gelap supaya warna
+  // popup-nya (default Material bisa terang/putih) konsisten sama
+  // tema gelap editor, bukan nyala mencolok.
   Widget _buildSelectionToolbar({
     required TextSelectionToolbarAnchors anchors,
     required BuildContext context,
@@ -202,16 +283,27 @@ class _CodeEditorScreenState extends State<CodeEditorScreen> {
 
     if (labels.isEmpty) return const SizedBox.shrink();
 
-    return TextSelectionToolbar(
-      anchorAbove: anchors.primaryAnchor,
-      anchorBelow: anchors.secondaryAnchor ?? anchors.primaryAnchor,
-      children: List.generate(labels.length, (i) {
-        return TextSelectionToolbarTextButton(
-          padding: TextSelectionToolbarTextButton.getPadding(i, labels.length),
-          onPressed: actions[i],
-          child: Text(labels[i]),
-        );
-      }),
+    return Theme(
+      data: Theme.of(context).copyWith(
+        colorScheme: Theme.of(context).colorScheme.copyWith(
+              surface: _inputFillColor,
+              onSurface: Colors.white,
+            ),
+      ),
+      child: TextSelectionToolbar(
+        anchorAbove: anchors.primaryAnchor,
+        anchorBelow: anchors.secondaryAnchor ?? anchors.primaryAnchor,
+        children: List.generate(labels.length, (i) {
+          return TextSelectionToolbarTextButton(
+            padding: TextSelectionToolbarTextButton.getPadding(i, labels.length),
+            onPressed: actions[i],
+            child: Text(
+              labels[i],
+              style: const TextStyle(color: Colors.white, fontSize: 13),
+            ),
+          );
+        }),
+      ),
     );
   }
 
@@ -234,60 +326,47 @@ class _CodeEditorScreenState extends State<CodeEditorScreen> {
         appBar: AppBar(
           backgroundColor: _editorBackground,
           iconTheme: const IconThemeData(color: Colors.white),
-          title: Row(
-            mainAxisSize: MainAxisSize.min,
+          titleSpacing: 0,
+          toolbarHeight: 60,
+          title: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Flexible(
-                child: Text(
-                  fileName,
-                  style: const TextStyle(color: Colors.white, fontSize: 14),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(
+                    child: Text(
+                      fileName,
+                      style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  if (_hasUnsavedChanges)
+                    const Padding(
+                      padding: EdgeInsets.only(left: 6),
+                      child: Icon(Icons.circle, size: 8, color: _dalxAccent),
+                    ),
+                ],
               ),
-              if (_hasUnsavedChanges)
-                const Padding(
-                  padding: EdgeInsets.only(left: 6),
-                  child: Icon(Icons.circle, size: 8, color: _dalxAccent),
-                ),
+              const SizedBox(height: 2),
+              Text(
+                _parentPath,
+                style: const TextStyle(color: Colors.white38, fontSize: 11),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ],
           ),
           actions: _isLoading || _errorMessage != null
               ? null
               : [
-                  IconButton(
-                    icon: const Icon(Icons.search),
-                    tooltip: 'Find & Replace',
-                    onPressed: () => _findController.findMode(),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.undo),
-                    tooltip: 'Undo',
-                    onPressed: _readOnlyTooLarge
-                        ? null
-                        : () {
-                            if (_controller.canUndo) _controller.undo();
-                          },
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.redo),
-                    tooltip: 'Redo',
-                    onPressed: _readOnlyTooLarge
-                        ? null
-                        : () {
-                            if (_controller.canRedo) _controller.redo();
-                          },
-                  ),
-                  IconButton(
-                    icon: _isSaving
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: _dalxAccent),
-                          )
-                        : const Icon(Icons.save_outlined),
-                    tooltip: 'Save',
-                    onPressed: (_readOnlyTooLarge || _isSaving) ? null : _save,
+                  PopupMenuButton<String>(
+                    icon: const Icon(Icons.more_vert),
+                    color: _panelBackground,
+                    onSelected: _handleMenuAction,
+                    itemBuilder: (context) => _buildMenuItems(),
                   ),
                 ],
         ),
@@ -331,7 +410,7 @@ class _CodeEditorScreenState extends State<CodeEditorScreen> {
             findController: _findController,
             toolbarController: _toolbarController,
             readOnly: _readOnlyTooLarge,
-            wordWrap: false,
+            wordWrap: _wordWrap,
             style: CodeEditorStyle(
               fontSize: 13,
               fontFamily: 'monospace',
@@ -375,15 +454,43 @@ class _CodeEditorScreenState extends State<CodeEditorScreen> {
   }
 }
 
+// ---------------- Baris menu (icon + label) buat PopupMenuItem ----------------
+
+class _MenuRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool active;
+  final bool dimmed;
+
+  const _MenuRow({
+    required this.icon,
+    required this.label,
+    this.active = false,
+    this.dimmed = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = dimmed ? Colors.grey.shade600 : (active ? _dalxAccent : Colors.white);
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: color),
+        const SizedBox(width: 12),
+        Text(label, style: TextStyle(color: color, fontSize: 13)),
+      ],
+    );
+  }
+}
+
 // ---------------- Find & Replace Panel (UI custom, Fase 4) ----------------
 //
-// re_editor menyediakan LOGIC find/replace lewat CodeFindController
-// (pattern matching, next/previous match, replace, replace all,
-// toggle case-sensitive/regex) tapi TIDAK menyediakan UI panel bawaan
-// — itu memang harus dibuat sendiri oleh yang pakai package-nya. Ini
-// versi minimal DalX: satu baris input pencarian + counter match +
-// next/previous + toggle case/regex, dan kalau bukan read-only ada
-// baris kedua untuk input pengganti + Replace/Replace All.
+// re_editor menyediakan LOGIC find/replace lewat CodeFindController,
+// UI panelnya dibuat sendiri di sini. Baris "Ganti dengan..." cuma
+// muncul kalau kolom "Cari..." sudah diisi — biar panel nggak makan
+// tempat pas baru dibuka (dan ikut mengecilkan risiko nutupin baris
+// pertama kode). Input field dikasih kotak fill jelas (_inputFillColor)
+// biar kontras sama panel, dan tombol Replace/Replace All dibikin
+// lebih kalem (outlined/tonal, bukan teks biru terang polos).
 
 class _FindReplacePanel extends StatefulWidget implements PreferredSizeWidget {
   final CodeFindController controller;
@@ -395,7 +502,7 @@ class _FindReplacePanel extends StatefulWidget implements PreferredSizeWidget {
   Size get preferredSize {
     final hasQuery = controller.findInputController.text.isNotEmpty;
     final showReplaceRow = !readOnly && hasQuery;
-    return Size.fromHeight(showReplaceRow ? 88 : 44);
+    return Size.fromHeight(showReplaceRow ? 92 : 48);
   }
 
   @override
@@ -419,6 +526,21 @@ class _FindReplacePanelState extends State<_FindReplacePanel> {
     if (mounted) setState(() {});
   }
 
+  InputDecoration _fieldDecoration(String hint) {
+    return InputDecoration(
+      hintText: hint,
+      hintStyle: const TextStyle(color: Colors.white54),
+      isDense: true,
+      filled: true,
+      fillColor: _inputFillColor,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(6),
+        borderSide: BorderSide.none,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final value = widget.controller.value;
@@ -426,11 +548,12 @@ class _FindReplacePanelState extends State<_FindReplacePanel> {
     final result = value?.result;
     final matchCount = result?.matches.length ?? 0;
     final currentIndex = (result != null && matchCount > 0) ? result.index + 1 : 0;
+    final showReplaceRow = !widget.readOnly && widget.controller.findInputController.text.isNotEmpty;
 
     return Material(
-      color: const Color(0xFF2A2A2A),
+      color: _panelBackground,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -441,17 +564,14 @@ class _FindReplacePanelState extends State<_FindReplacePanel> {
                     controller: widget.controller.findInputController,
                     focusNode: widget.controller.findInputFocusNode,
                     style: const TextStyle(color: Colors.white, fontSize: 13),
-                    decoration: const InputDecoration(
-                      hintText: 'Cari...',
-                      hintStyle: TextStyle(color: Colors.white38),
-                      isDense: true,
-                      border: InputBorder.none,
-                    ),
+                    cursorColor: _dalxAccent,
+                    decoration: _fieldDecoration('Cari...'),
                   ),
                 ),
+                const SizedBox(width: 6),
                 Text(
                   matchCount == 0 ? '0/0' : '$currentIndex/$matchCount',
-                  style: const TextStyle(color: Colors.white54, fontSize: 11),
+                  style: const TextStyle(color: Colors.white70, fontSize: 11),
                 ),
                 IconButton(
                   icon: const Icon(Icons.keyboard_arrow_up, color: Colors.white70, size: 20),
@@ -465,7 +585,7 @@ class _FindReplacePanelState extends State<_FindReplacePanel> {
                   icon: Icon(
                     Icons.text_fields,
                     size: 18,
-                    color: (option?.caseSensitive ?? false) ? _dalxAccent : Colors.white38,
+                    color: (option?.caseSensitive ?? false) ? _dalxAccent : Colors.white54,
                   ),
                   tooltip: 'Case sensitive',
                   onPressed: widget.controller.toggleCaseSensitive,
@@ -474,7 +594,7 @@ class _FindReplacePanelState extends State<_FindReplacePanel> {
                   icon: Icon(
                     Icons.code,
                     size: 18,
-                    color: (option?.regex ?? false) ? _dalxAccent : Colors.white38,
+                    color: (option?.regex ?? false) ? _dalxAccent : Colors.white54,
                   ),
                   tooltip: 'Regex',
                   onPressed: widget.controller.toggleRegex,
@@ -485,7 +605,8 @@ class _FindReplacePanelState extends State<_FindReplacePanel> {
                 ),
               ],
             ),
-            if (!widget.readOnly && widget.controller.findInputController.text.isNotEmpty)
+            if (showReplaceRow) ...[
+              const SizedBox(height: 6),
               Row(
                 children: [
                   Expanded(
@@ -493,24 +614,37 @@ class _FindReplacePanelState extends State<_FindReplacePanel> {
                       controller: widget.controller.replaceInputController,
                       focusNode: widget.controller.replaceInputFocusNode,
                       style: const TextStyle(color: Colors.white, fontSize: 13),
-                      decoration: const InputDecoration(
-                        hintText: 'Ganti dengan...',
-                        hintStyle: TextStyle(color: Colors.white38),
-                        isDense: true,
-                        border: InputBorder.none,
-                      ),
+                      cursorColor: _dalxAccent,
+                      decoration: _fieldDecoration('Ganti dengan...'),
                     ),
                   ),
-                  TextButton(
+                  const SizedBox(width: 6),
+                  OutlinedButton(
                     onPressed: matchCount == 0 ? null : widget.controller.replaceMatch,
-                    child: const Text('Replace', style: TextStyle(color: _dalxAccent, fontSize: 12)),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      side: BorderSide(color: _dalxAccent.withOpacity(0.6)),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    child: const Text('Replace', style: TextStyle(fontSize: 12)),
                   ),
-                  TextButton(
+                  const SizedBox(width: 6),
+                  FilledButton(
                     onPressed: matchCount == 0 ? null : widget.controller.replaceAllMatches,
-                    child: const Text('Replace All', style: TextStyle(color: _dalxAccent, fontSize: 12)),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: _dalxAccent.withOpacity(0.85),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    child: const Text('Replace All', style: TextStyle(fontSize: 12)),
                   ),
                 ],
               ),
+            ],
           ],
         ),
       ),
