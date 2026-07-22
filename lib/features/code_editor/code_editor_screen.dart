@@ -7,19 +7,24 @@
 // bawah.
 //
 // --- AppBar minimal ---
-// Toolbar atas SENGAJA cuma nampilin nama file + path (di bawahnya,
-// kecil) + titik biru kalau ada perubahan belum disimpan. SEMUA aksi
-// (Cari & Ganti, Select All, Indent, Outdent, Word Wrap, Undo, Redo,
-// Save) dipindah ke menu titik-tiga (More) di kanan — supaya toolbar
-// atas tetap ringkas dan nggak menutupi baris pertama kode.
+// Toolbar atas cuma nampilin nama file + path (di bawahnya) + titik
+// biru kalau ada perubahan belum disimpan. SEMUA aksi (Cari & Ganti,
+// Select All, Indent, Outdent, Word Wrap, Undo, Redo, Save) ada di
+// menu titik-tiga (More) di kanan.
+//
+// --- Find & Replace Panel ---
+// PENTING: CodeFindController.value bertipe CodeFindValue? (nullable).
+// value == null berarti mode Cari belum aktif (findMode() belum
+// dipanggil, atau sudah di-close()) — di kondisi itu panel WAJIB
+// render kosong (SizedBox.shrink, preferredSize nol), supaya panel
+// beneran hilang total sampai user tap "Cari & Ganti" dari menu More.
+// Kalau ini tidak dicek, findBuilder tetap dipanggil terus oleh
+// CodeEditor dan panel akan selalu tampil sejak file dibuka.
 //
 // --- Selection Toolbar (Copy/Cut/Paste/Select All) ---
-// Muncul otomatis pas long-press teks yang disorot — logic-nya sudah
-// ada di re_editor lewat MobileSelectionToolbarController, kita cuma
-// suplai builder isi popup-nya (_buildSelectionToolbar), dibungkus
-// Theme gelap biar nggak putih-menyala di atas editor gelap. Select
-// manual (drag) dan replace/delete teks yang disorot (ketik di
-// atasnya / backspace) sudah otomatis dari re_editor.
+// Muncul otomatis pas long-press teks yang disorot lewat
+// MobileSelectionToolbarController, dibungkus Theme gelap biar nggak
+// putih-menyala di atas editor gelap.
 //
 // Save ke file lewat dart:io langsung (operasi ringan seperti
 // Rename di file_engine, BUKAN lewat TaskQueue).
@@ -237,8 +242,7 @@ class _CodeEditorScreenState extends State<CodeEditorScreen> {
   //
   // Dipanggil re_editor sendiri lewat MobileSelectionToolbarController
   // begitu user long-press teks. Dibungkus Theme gelap supaya warna
-  // popup-nya (default Material bisa terang/putih) konsisten sama
-  // tema gelap editor, bukan nyala mencolok.
+  // popup-nya konsisten sama tema gelap editor.
   Widget _buildSelectionToolbar({
     required TextSelectionToolbarAnchors anchors,
     required BuildContext context,
@@ -327,7 +331,7 @@ class _CodeEditorScreenState extends State<CodeEditorScreen> {
           backgroundColor: _editorBackground,
           iconTheme: const IconThemeData(color: Colors.white),
           titleSpacing: 0,
-          toolbarHeight: 60,
+          toolbarHeight: 62,
           title: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisAlignment: MainAxisAlignment.center,
@@ -350,10 +354,10 @@ class _CodeEditorScreenState extends State<CodeEditorScreen> {
                     ),
                 ],
               ),
-              const SizedBox(height: 2),
+              const SizedBox(height: 3),
               Text(
                 _parentPath,
-                style: const TextStyle(color: Colors.white38, fontSize: 11),
+                style: const TextStyle(color: Colors.white70, fontSize: 12.5),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -484,13 +488,11 @@ class _MenuRow extends StatelessWidget {
 
 // ---------------- Find & Replace Panel (UI custom, Fase 4) ----------------
 //
-// re_editor menyediakan LOGIC find/replace lewat CodeFindController,
-// UI panelnya dibuat sendiri di sini. Baris "Ganti dengan..." cuma
-// muncul kalau kolom "Cari..." sudah diisi — biar panel nggak makan
-// tempat pas baru dibuka (dan ikut mengecilkan risiko nutupin baris
-// pertama kode). Input field dikasih kotak fill jelas (_inputFillColor)
-// biar kontras sama panel, dan tombol Replace/Replace All dibikin
-// lebih kalem (outlined/tonal, bukan teks biru terang polos).
+// PENTING: controller.value bertipe CodeFindValue? — null berarti
+// mode Cari belum aktif / sudah ditutup. Kondisi ini WAJIB dicek di
+// preferredSize DAN build(), supaya panel benar-benar hilang total
+// (bukan cuma kosong "0/0") sampai user membuka mode Cari lagi lewat
+// menu More.
 
 class _FindReplacePanel extends StatefulWidget implements PreferredSizeWidget {
   final CodeFindController controller;
@@ -500,6 +502,7 @@ class _FindReplacePanel extends StatefulWidget implements PreferredSizeWidget {
 
   @override
   Size get preferredSize {
+    if (controller.value == null) return Size.zero;
     final hasQuery = controller.findInputController.text.isNotEmpty;
     final showReplaceRow = !readOnly && hasQuery;
     return Size.fromHeight(showReplaceRow ? 92 : 48);
@@ -544,8 +547,13 @@ class _FindReplacePanelState extends State<_FindReplacePanel> {
   @override
   Widget build(BuildContext context) {
     final value = widget.controller.value;
-    final option = value?.option;
-    final result = value?.result;
+
+    // value == null -> mode Cari belum aktif / sudah ditutup. Panel
+    // wajib kosong total, bukan cuma nampilin "0/0".
+    if (value == null) return const SizedBox.shrink();
+
+    final option = value.option;
+    final result = value.result;
     final matchCount = result?.matches.length ?? 0;
     final currentIndex = (result != null && matchCount > 0) ? result.index + 1 : 0;
     final showReplaceRow = !widget.readOnly && widget.controller.findInputController.text.isNotEmpty;
@@ -585,7 +593,7 @@ class _FindReplacePanelState extends State<_FindReplacePanel> {
                   icon: Icon(
                     Icons.text_fields,
                     size: 18,
-                    color: (option?.caseSensitive ?? false) ? _dalxAccent : Colors.white54,
+                    color: option.caseSensitive ? _dalxAccent : Colors.white54,
                   ),
                   tooltip: 'Case sensitive',
                   onPressed: widget.controller.toggleCaseSensitive,
@@ -594,7 +602,7 @@ class _FindReplacePanelState extends State<_FindReplacePanel> {
                   icon: Icon(
                     Icons.code,
                     size: 18,
-                    color: (option?.regex ?? false) ? _dalxAccent : Colors.white54,
+                    color: option.regex ? _dalxAccent : Colors.white54,
                   ),
                   tooltip: 'Regex',
                   onPressed: widget.controller.toggleRegex,
