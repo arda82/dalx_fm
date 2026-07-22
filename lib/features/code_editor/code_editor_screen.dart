@@ -6,6 +6,14 @@
 // yang wajib dibuat sendiri, itu yang ada di _FindReplacePanel di
 // bawah.
 //
+// Selection Toolbar (Copy/Cut/Paste/Select All) muncul otomatis
+// pas long-press teks yang disorot — logic-nya juga sudah ada di
+// re_editor lewat MobileSelectionToolbarController, kita cuma
+// suplai builder isi popup-nya (_buildSelectionToolbar). Select
+// manual (drag) dan replace/delete teks yang disorot (ketik di
+// atasnya / backspace) sudah otomatis dari re_editor, tidak perlu
+// kode tambahan.
+//
 // Save ke file lewat dart:io langsung (operasi ringan seperti
 // Rename di file_engine, BUKAN lewat TaskQueue — sesuai pembagian
 // yang sudah ada: TaskQueue untuk operasi berat Copy/Move/Delete).
@@ -37,6 +45,7 @@ class CodeEditorScreen extends StatefulWidget {
 class _CodeEditorScreenState extends State<CodeEditorScreen> {
   late final CodeLineEditingController _controller;
   late final CodeFindController _findController;
+  late final MobileSelectionToolbarController _toolbarController;
 
   bool _isLoading = true;
   bool _isSaving = false;
@@ -50,6 +59,9 @@ class _CodeEditorScreenState extends State<CodeEditorScreen> {
     super.initState();
     _controller = CodeLineEditingController.fromText('');
     _findController = CodeFindController(_controller);
+    _toolbarController = MobileSelectionToolbarController(
+      builder: _buildSelectionToolbar,
+    );
     _loadFile();
   }
 
@@ -137,6 +149,70 @@ class _CodeEditorScreenState extends State<CodeEditorScreen> {
     final dotIndex = fileName.lastIndexOf('.');
     if (dotIndex == -1 || dotIndex == fileName.length - 1) return '';
     return fileName.substring(dotIndex + 1).toLowerCase();
+  }
+
+  // ---------------- Selection Toolbar (Copy/Cut/Paste/Select All) ----------------
+  //
+  // Dipanggil re_editor sendiri lewat MobileSelectionToolbarController
+  // begitu user long-press teks (baik ada seleksi maupun cuma taruh
+  // kursor). Kita cuma nentuin tombol apa saja yang relevan buat
+  // kondisi saat itu — semua aksinya (copy/cut/paste/selectAll) sudah
+  // ada di CodeLineEditingController, tidak perlu implementasi manual.
+  Widget _buildSelectionToolbar({
+    required TextSelectionToolbarAnchors anchors,
+    required BuildContext context,
+    required CodeLineEditingController controller,
+    required VoidCallback onDismiss,
+    required VoidCallback onRefresh,
+  }) {
+    final hasSelection = !controller.selection.isCollapsed;
+    final canEdit = !_readOnlyTooLarge;
+
+    final labels = <String>[];
+    final actions = <VoidCallback>[];
+
+    if (hasSelection) {
+      labels.add('Copy');
+      actions.add(() {
+        controller.copy();
+        onDismiss();
+      });
+      if (canEdit) {
+        labels.add('Cut');
+        actions.add(() {
+          controller.cut();
+          onDismiss();
+        });
+      }
+    }
+    if (canEdit) {
+      labels.add('Paste');
+      actions.add(() {
+        controller.paste();
+        onDismiss();
+      });
+    }
+    if (!controller.isAllSelected) {
+      labels.add('Select All');
+      actions.add(() {
+        controller.selectAll();
+        onRefresh();
+      });
+    }
+
+    if (labels.isEmpty) return const SizedBox.shrink();
+
+    return TextSelectionToolbar(
+      anchorAbove: anchors.primaryAnchor,
+      anchorBelow: anchors.secondaryAnchor ?? anchors.primaryAnchor,
+      children: List.generate(labels.length, (i) {
+        return TextSelectionToolbarTextButton(
+          padding: TextSelectionToolbarTextButton.getPadding(i, labels.length),
+          onPressed: actions[i],
+          child: Text(labels[i]),
+        );
+      }),
+    );
   }
 
   @override
@@ -253,6 +329,7 @@ class _CodeEditorScreenState extends State<CodeEditorScreen> {
           child: CodeEditor(
             controller: _controller,
             findController: _findController,
+            toolbarController: _toolbarController,
             readOnly: _readOnlyTooLarge,
             wordWrap: false,
             style: CodeEditorStyle(
