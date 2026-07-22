@@ -56,6 +56,7 @@ class FileItem {
     'dart', 'py', 'java', 'kt', 'kts', 'c', 'h', 'cpp', 'cc', 'hpp', 'cxx',
     'js', 'ts', 'json', 'yaml', 'yml', 'xml', 'html', 'htm', 'css',
     'md', 'markdown', 'sh', 'bash', 'sql', 'go', 'rs', 'swift', 'php', 'rb',
+    'txt', 'log', 'ini', 'cfg', 'gradle', 'properties', 'env',
   };
 
   bool get isCodeFile => !isFolder && _codeExts.contains(extension);
