@@ -43,4 +43,20 @@ class FileItem {
 
   bool get isImage => !isFolder && _imageExts.contains(extension);
   bool get isVideo => !isFolder && _videoExts.contains(extension);
+
+  // ---------------- Fase 4: Code Editor ----------------
+  // Dipakai explorer_ui untuk menentukan apakah tap file harus
+  // membuka code_editor (CodeEditorScreen) alih-alih Open With.
+  // Daftar ekstensi ini SENGAJA dijaga konsisten manual dengan
+  // language_detector.dart di features/code_editor — core/ tidak
+  // boleh bergantung pada features/ (lihat ARCHITECTURE.md bagian 3),
+  // jadi daftar bahasa yang didukung tidak diimpor dari sana.
+
+  static const _codeExts = {
+    'dart', 'py', 'java', 'kt', 'kts', 'c', 'h', 'cpp', 'cc', 'hpp', 'cxx',
+    'js', 'ts', 'json', 'yaml', 'yml', 'xml', 'html', 'htm', 'css',
+    'md', 'markdown', 'sh', 'bash', 'sql', 'go', 'rs', 'swift', 'php', 'rb',
+  };
+
+  bool get isCodeFile => !isFolder && _codeExts.contains(extension);
 }

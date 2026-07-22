@@ -3,8 +3,8 @@
 // Layar Explorer Sub-Fase 0b + Fase 1 (Share, File Info, Open With,
 // Install APK, pickMode — Document Picker) + Fase 2 (Explorer Polish:
 // Grid View, Favorites, Duplicate, New File) + Fase 3 (Media Viewer:
-// Image Viewer & Video Viewer) + Root Mode (back-button behavior
-// khusus).
+// Image Viewer & Video Viewer) + Fase 4 (Code Editor) + Root Mode
+// (back-button behavior khusus).
 //
 // --- pickMode ---
 // pickMode = true dipakai saat DalX dibuka lewat intent
@@ -30,11 +30,15 @@
 //   Setelah di "/", back berikutnya baru pop/exit biasa.
 //
 // --- Tap File (non-pickMode) ---
+// Urutan cek di _handleFileTap, dari paling spesifik ke paling umum:
 // - file gambar (jpg/jpeg/png/gif/webp/bmp) -> ImageViewerScreen
 //   (media_viewer, Fase 3), dibawa juga daftar gambar sefolder biar
 //   bisa swipe kiri/kanan tanpa keluar-masuk viewer.
 // - file video (mp4/mkv/webm/3gp/mov/avi) -> VideoViewerScreen
 //   (media_viewer, Fase 3).
+// - file kode (dart/py/java/kt/c/cpp/js/ts/json/yaml/xml/html/css/
+//   md/sh/sql/go/rs/swift/php/rb) -> CodeEditorScreen (code_editor,
+//   Fase 4).
 // - file .apk -> cek izin install, trigger installer sistem.
 // - file lain -> Open With (chooser Android).
 //
@@ -50,6 +54,7 @@ import 'package:share_plus/share_plus.dart';
 import '../../core/models/file_item.dart';
 import '../../core/native_bridge/native_bridge.dart';
 import '../../core/settings/app_settings.dart';
+import '../code_editor/code_editor_screen.dart';
 import '../favorites/favorites_service.dart';
 import '../file_engine/file_engine.dart';
 import '../media_viewer/image_viewer_screen.dart';
@@ -87,7 +92,6 @@ class ExplorerScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final explorerState = ref.watch(explorerProvider(rootPath));
     final notifier = ref.read(explorerProvider(rootPath).notifier);
-    
 
     if (explorerState.currentPath == null && !explorerState.isLoading) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -428,10 +432,11 @@ class ExplorerScreen extends ConsumerWidget {
   // ---------------- Tap File non-pickMode ----------------
   //
   // Urutan cek: gambar -> ImageViewerScreen, video -> VideoViewerScreen
-  // (keduanya Fase 3, media_viewer), baru kalau bukan keduanya lanjut
-  // ke jalur lama Fase 1 (Install APK / Open With). Perlu ExplorerState
-  // di sini (bukan cuma path) supaya ImageViewerScreen bisa dibawakan
-  // daftar gambar sefolder buat swipe kiri/kanan.
+  // (Fase 3), kode -> CodeEditorScreen (Fase 4), baru kalau bukan
+  // ketiganya lanjut ke jalur lama Fase 1 (Install APK / Open With).
+  // Perlu ExplorerState di sini (bukan cuma path) supaya
+  // ImageViewerScreen bisa dibawakan daftar gambar sefolder buat
+  // swipe kiri/kanan.
 
   Future<void> _handleFileTap(
     BuildContext context,
@@ -458,6 +463,14 @@ class ExplorerScreen extends ConsumerWidget {
       Navigator.push(
         context,
         MaterialPageRoute(builder: (_) => VideoViewerScreen(path: item.path)),
+      );
+      return;
+    }
+
+    if (item.isCodeFile) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => CodeEditorScreen(path: item.path)),
       );
       return;
     }
@@ -547,7 +560,8 @@ class ExplorerScreen extends ConsumerWidget {
     }
 
     // Non-pickMode: tap file (bukan folder) -> Image/Video Viewer
-    // (Fase 3) atau Open With/Install APK (Fase 1) lewat _handleFileTap.
+    // (Fase 3), Code Editor (Fase 4), atau Open With/Install APK
+    // (Fase 1) lewat _handleFileTap.
     // pickMode: tap file -> kembalikan ke app pemanggil. Tap folder
     // selalu navigasi biasa. Long-press/multi-select dimatikan total
     // di pickMode.

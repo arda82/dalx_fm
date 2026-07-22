@@ -26,6 +26,10 @@ dependencies:
   # Fase 3: Media Viewer
   photo_view: ^0.15.0
   video_player: ^2.9.2
+  
+  # fase 4: code editor
+  re_editor: ^0.10.0
+  re_highlight: ^0.0.3
 
   # Ikon Material Design tambahan (opsional, dipakai bertahap)
   cupertino_icons: ^1.0.8
