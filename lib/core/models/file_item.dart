@@ -32,4 +32,15 @@ class FileItem {
     if (dotIndex == -1 || dotIndex == name.length - 1) return '';
     return name.substring(dotIndex + 1).toLowerCase();
   }
+
+  // ---------------- Fase 3: Media Viewer ----------------
+  // Dipakai explorer_ui untuk menentukan apakah tap file harus
+  // membuka media_viewer (ImageViewerScreen/VideoViewerScreen) atau
+  // tetap lewat jalur Open With/Install APK (Fase 1) seperti biasa.
+
+  static const _imageExts = {'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'};
+  static const _videoExts = {'mp4', 'mkv', 'webm', '3gp', 'mov', 'avi'};
+
+  bool get isImage => !isFolder && _imageExts.contains(extension);
+  bool get isVideo => !isFolder && _videoExts.contains(extension);
 }

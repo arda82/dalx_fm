@@ -2,8 +2,9 @@
 //
 // Layar Explorer Sub-Fase 0b + Fase 1 (Share, File Info, Open With,
 // Install APK, pickMode — Document Picker) + Fase 2 (Explorer Polish:
-// Grid View, Favorites, Duplicate, New File) + Root Mode (back-button
-// behavior khusus).
+// Grid View, Favorites, Duplicate, New File) + Fase 3 (Media Viewer:
+// Image Viewer & Video Viewer) + Root Mode (back-button behavior
+// khusus).
 //
 // --- pickMode ---
 // pickMode = true dipakai saat DalX dibuka lewat intent
@@ -29,8 +30,13 @@
 //   Setelah di "/", back berikutnya baru pop/exit biasa.
 //
 // --- Tap File (non-pickMode) ---
-// - file .apk -> cek izin install, trigger installer sistem
-// - file lain -> Open With (chooser Android)
+// - file gambar (jpg/jpeg/png/gif/webp/bmp) -> ImageViewerScreen
+//   (media_viewer, Fase 3), dibawa juga daftar gambar sefolder biar
+//   bisa swipe kiri/kanan tanpa keluar-masuk viewer.
+// - file video (mp4/mkv/webm/3gp/mov/avi) -> VideoViewerScreen
+//   (media_viewer, Fase 3).
+// - file .apk -> cek izin install, trigger installer sistem.
+// - file lain -> Open With (chooser Android).
 //
 // --- Folder Android/data & Android/obb ---
 // Dibatasi total oleh Android non-root, ditampilkan lewat notice
@@ -46,6 +52,8 @@ import '../../core/native_bridge/native_bridge.dart';
 import '../../core/settings/app_settings.dart';
 import '../favorites/favorites_service.dart';
 import '../file_engine/file_engine.dart';
+import '../media_viewer/image_viewer_screen.dart';
+import '../media_viewer/video_viewer_screen.dart';
 import '../storage_overview/storage_overview_screen.dart';
 import '../task_queue/task_queue_screen.dart';
 import 'app_drawer.dart';
@@ -417,12 +425,46 @@ class ExplorerScreen extends ConsumerWidget {
     }
   }
 
-  // ---------------- Tap File non-pickMode: Open With / Install APK ----------------
+  // ---------------- Tap File non-pickMode ----------------
+  //
+  // Urutan cek: gambar -> ImageViewerScreen, video -> VideoViewerScreen
+  // (keduanya Fase 3, media_viewer), baru kalau bukan keduanya lanjut
+  // ke jalur lama Fase 1 (Install APK / Open With). Perlu ExplorerState
+  // di sini (bukan cuma path) supaya ImageViewerScreen bisa dibawakan
+  // daftar gambar sefolder buat swipe kiri/kanan.
 
-  Future<void> _handleFileTap(BuildContext context, WidgetRef ref, String path) async {
+  Future<void> _handleFileTap(
+    BuildContext context,
+    WidgetRef ref,
+    ExplorerState state,
+    FileItem item,
+  ) async {
+    if (item.isImage) {
+      final images = state.items.where((i) => i.isImage).toList();
+      final initialIndex = images.indexWhere((i) => i.path == item.path);
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ImageViewerScreen(
+            images: images,
+            initialIndex: initialIndex < 0 ? 0 : initialIndex,
+          ),
+        ),
+      );
+      return;
+    }
+
+    if (item.isVideo) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => VideoViewerScreen(path: item.path)),
+      );
+      return;
+    }
+
     final nativeBridge = ref.read(nativeBridgeProvider);
 
-    if (path.toLowerCase().endsWith('.apk')) {
+    if (item.path.toLowerCase().endsWith('.apk')) {
       final canInstall = await nativeBridge.canInstallPackages();
       if (!canInstall) {
         if (!context.mounted) return;
@@ -440,11 +482,11 @@ class ExplorerScreen extends ConsumerWidget {
         if (proceed == true) await nativeBridge.requestInstallPermission();
         return;
       }
-      await nativeBridge.installApk(path);
+      await nativeBridge.installApk(item.path);
       return;
     }
 
-    await nativeBridge.openWith(path, mimeType: NativeBridge.mimeTypeFor(path));
+    await nativeBridge.openWith(item.path, mimeType: NativeBridge.mimeTypeFor(item.path));
   }
 
   // ---------------- Folder Android/data & Android/obb (dibatasi sistem) ----------------
@@ -504,7 +546,8 @@ class ExplorerScreen extends ConsumerWidget {
       return const Center(child: Text('Folder ini kosong'));
     }
 
-    // Non-pickMode: tap file (bukan folder) -> Open With/Install APK.
+    // Non-pickMode: tap file (bukan folder) -> Image/Video Viewer
+    // (Fase 3) atau Open With/Install APK (Fase 1) lewat _handleFileTap.
     // pickMode: tap file -> kembalikan ke app pemanggil. Tap folder
     // selalu navigasi biasa. Long-press/multi-select dimatikan total
     // di pickMode.
@@ -522,7 +565,7 @@ class ExplorerScreen extends ConsumerWidget {
       } else if (item.isFolder) {
         notifier.openFolder(item.path);
       } else {
-        _handleFileTap(context, ref, item.path);
+        _handleFileTap(context, ref, state, item);
       }
     }
 
