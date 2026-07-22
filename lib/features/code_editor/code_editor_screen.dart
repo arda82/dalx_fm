@@ -392,7 +392,11 @@ class _FindReplacePanel extends StatefulWidget implements PreferredSizeWidget {
   const _FindReplacePanel({required this.controller, required this.readOnly});
 
   @override
-  Size get preferredSize => Size.fromHeight(readOnly ? 44 : 88);
+  Size get preferredSize {
+    final hasQuery = controller.findInputController.text.isNotEmpty;
+    final showReplaceRow = !readOnly && hasQuery;
+    return Size.fromHeight(showReplaceRow ? 88 : 44);
+  }
 
   @override
   State<_FindReplacePanel> createState() => _FindReplacePanelState();
@@ -481,7 +485,7 @@ class _FindReplacePanelState extends State<_FindReplacePanel> {
                 ),
               ],
             ),
-            if (!widget.readOnly)
+            if (!widget.readOnly && widget.controller.findInputController.text.isNotEmpty)
               Row(
                 children: [
                   Expanded(
