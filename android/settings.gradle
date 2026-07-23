@@ -18,9 +18,13 @@ pluginManagement {
 
 plugins {
     id "dev.flutter.flutter-plugin-loader" version "1.0.0"
-    // AGP 8.3.2 & Kotlin 2.0.21 — kombinasi yang sudah terbukti jalan
-    // di TaniLog dengan Gradle 8.6.
-    id "com.android.application" version "8.3.2" apply false
+    // AGP dinaikkan ke 8.6.1 (dari 8.3.2) — Fase 6 narik dependency
+    // transitif androidx.core:core-ktx:1.16.0 (lewat flutter_pdfview/
+    // pluto_grid/excel) yang mensyaratkan AGP minimal 8.6.0. AGP 8.6.x
+    // butuh Gradle minimal 8.7 (lihat gradle-wrapper.properties, ikut
+    // dinaikkan dari 8.6 ke 8.7) — Kotlin 2.0.21 TIDAK perlu ikut naik,
+    // resmi didukung Gradle 8.7 juga.
+    id "com.android.application" version "8.6.1" apply false
     id "org.jetbrains.kotlin.android" version "2.0.21" apply false
 }
 
