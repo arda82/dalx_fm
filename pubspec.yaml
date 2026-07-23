@@ -31,6 +31,9 @@ dependencies:
   re_editor: ^0.10.0
   re_highlight: ^0.0.3
 
+  # Fase 5: Archive (Compress/Extract ZIP, pure Dart)
+  archive: ^3.6.1
+
   # Ikon Material Design tambahan (opsional, dipakai bertahap)
   cupertino_icons: ^1.0.8
 

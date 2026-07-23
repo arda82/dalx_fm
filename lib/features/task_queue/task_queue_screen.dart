@@ -140,6 +140,10 @@ class _TaskCard extends StatelessWidget {
         return Icons.content_cut;
       case TaskType.delete:
         return Icons.delete_outline;
+      case TaskType.compress:
+        return Icons.folder_zip_outlined;
+      case TaskType.extract:
+        return Icons.unarchive_outlined;
     }
   }
 }

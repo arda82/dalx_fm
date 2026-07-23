@@ -60,4 +60,13 @@ class FileItem {
   };
 
   bool get isCodeFile => !isFolder && _codeExts.contains(extension);
+
+  // ---------------- Fase 5: Archive ----------------
+  // Dipakai explorer_ui buat tentuin kapan "Extract" boleh muncul di
+  // menu titik-tiga. Cuma ZIP dulu (pure Dart via package archive) —
+  // RAR/7z belum didukung, itu bagian Fase 8 (Native Power-up).
+
+  static const _archiveExts = {'zip'};
+
+  bool get isArchive => !isFolder && _archiveExts.contains(extension);
 }

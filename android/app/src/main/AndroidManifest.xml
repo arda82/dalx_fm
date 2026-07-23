@@ -48,6 +48,22 @@
                 <category android:name="android.intent.category.OPENABLE" />
                 <data android:mimeType="*/*" />
             </intent-filter>
+
+            <!-- Fase 1 (item nyangkut): DalX bisa dipilih dari system
+                 chooser "Open With" app lain lewat ACTION_VIEW. Tanpa
+                 ini, kode Open With/Install APK Kotlin yang sudah ada
+                 tidak pernah kepanggil karena DalX tidak pernah tampil
+                 di chooser sama sekali. category BROWSABLE ditambah
+                 juga supaya DalX ikut kepilih untuk link/file yang
+                 dibuka dari browser/app lain lewat content:// atau
+                 file:// URI, bukan cuma intent langsung. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" android:mimeType="*/*" />
+                <data android:scheme="file" android:mimeType="*/*" />
+            </intent-filter>
         </activity>
         <meta-data
             android:name="flutterEmbedding"

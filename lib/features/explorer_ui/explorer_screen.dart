@@ -60,10 +60,12 @@ import '../file_engine/file_engine.dart';
 import '../media_viewer/image_viewer_screen.dart';
 import '../media_viewer/video_viewer_screen.dart';
 import '../storage_overview/storage_overview_screen.dart';
+import '../task_queue/task.dart';
 import '../task_queue/task_queue_screen.dart';
 import 'app_drawer.dart';
 import 'explorer_state.dart';
 import 'file_info_sheet.dart';
+import 'folder_picker_screen.dart';
 
 const dalxAccent = Color(0xFF0A84FF);
 
@@ -152,8 +154,9 @@ class ExplorerScreen extends ConsumerWidget {
           children: [
             if (!explorerState.isSelectMode || pickMode) _buildBreadcrumb(explorerState),
             if (!explorerState.isSelectMode || pickMode) const Divider(height: 1),
-            if (!pickMode && notifier.hasPendingPaste) _buildPasteBar(notifier),
             Expanded(child: _buildFileList(context, ref, explorerState, notifier)),
+            if (!pickMode && notifier.hasPendingPaste)
+              _buildClipboardBar(context, ref, notifier),
           ],
         ),
       ),
@@ -223,6 +226,26 @@ class ExplorerScreen extends ConsumerWidget {
     final allFavorited = state.selectedPaths.isNotEmpty &&
         state.selectedPaths.every(favorites.contains);
 
+    // Open With cuma masuk akal kalau tepat 1 item terpilih dan itu
+    // file (bukan folder) — sama seperti File Info. Ditaruh di More
+    // supaya tetap bisa dipakai di SD Card/USB OTG, karena tap-langsung
+    // untuk buka app di luar (Fase 1) kadang tidak otomatis muncul di
+    // storage eksternal.
+    FileItem? singleSelectedItem;
+    if (state.selectedPaths.length == 1) {
+      for (final item in state.items) {
+        if (item.path == state.selectedPaths.first) {
+          singleSelectedItem = item;
+          break;
+        }
+      }
+    }
+    final canOpenWith = singleSelectedItem != null && !singleSelectedItem.isFolder;
+    // Extract cuma masuk akal kalau tepat 1 item terpilih dan itu
+    // file .zip. Compress selalu boleh selama ada item terpilih
+    // (apa pun tipenya, termasuk campuran file & folder).
+    final canExtract = singleSelectedItem != null && singleSelectedItem.isArchive;
+
     return AppBar(
       leading: IconButton(
         icon: const Icon(Icons.close),
@@ -230,33 +253,21 @@ class ExplorerScreen extends ConsumerWidget {
       ),
       title: Text('${state.selectedPaths.length} dipilih'),
       actions: [
-        // Urutan sesuai mockup: Trash, Copy, Cut, Duplicate, Rename, titik-tiga
+        // Urutan sesuai mockup: Trash, Copy, Cut, Rename, titik-tiga.
+        // (Duplicate dihapus dari sini — bikin dua icon "copy" mirip
+        // berdampingan dan membingungkan; Copy+Paste di folder yang
+        // sama sudah cukup buat kebutuhan duplikat.)
         IconButton(
           icon: const Icon(Icons.delete_outline, color: Colors.red),
           onPressed: () => _confirmDelete(context, notifier, state),
         ),
         IconButton(
           icon: const Icon(Icons.copy_outlined),
-          onPressed: () {
-            notifier.copySelected();
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Item disalin. Buka folder tujuan lalu Paste.')),
-            );
-          },
+          onPressed: notifier.copySelected,
         ),
         IconButton(
           icon: const Icon(Icons.content_cut),
-          onPressed: () {
-            notifier.cutSelected();
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Item dipotong. Buka folder tujuan lalu Paste.')),
-            );
-          },
-        ),
-        IconButton(
-          icon: const Icon(Icons.content_copy_outlined),
-          tooltip: 'Duplicate',
-          onPressed: () => notifier.duplicateSelected(),
+          onPressed: notifier.cutSelected,
         ),
         IconButton(
           icon: const Icon(Icons.drive_file_rename_outline),
@@ -269,6 +280,11 @@ class ExplorerScreen extends ConsumerWidget {
           itemBuilder: (context) => [
             const PopupMenuItem(value: 'share', child: Text('Share')),
             const PopupMenuItem(value: 'info', child: Text('File Info')),
+            if (canOpenWith)
+              const PopupMenuItem(value: 'open_with', child: Text('Open With')),
+            const PopupMenuItem(value: 'compress', child: Text('Compress')),
+            if (canExtract)
+              const PopupMenuItem(value: 'extract', child: Text('Extract')),
             PopupMenuItem(
               value: 'favorite',
               child: Text(allFavorited ? 'Hapus Favorit' : 'Tambah Favorit'),
@@ -310,7 +326,135 @@ class ExplorerScreen extends ConsumerWidget {
       await showFileInfoSheet(context, item);
     } else if (value == 'favorite') {
       ref.read(favoritesProvider.notifier).toggleMultiple(state.selectedPaths.toList());
+    } else if (value == 'open_with') {
+      if (state.selectedPaths.length != 1) return;
+      final path = state.selectedPaths.first;
+      final nativeBridge = ref.read(nativeBridgeProvider);
+      try {
+        await nativeBridge.openWith(path, mimeType: NativeBridge.mimeTypeFor(path));
+      } catch (e) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gagal membuka Open With: $e')),
+        );
+      }
+    } else if (value == 'compress') {
+      final notifier = ref.read(explorerProvider(rootPath).notifier);
+      final paths = state.selectedPaths.toList();
+      if (paths.isEmpty) return;
+      final suggestedName = paths.length == 1
+          ? paths.first.split('/').last
+          : 'Archive';
+      final zipName = await _showCompressNameDialog(context, suggestedName);
+      if (zipName == null || zipName.trim().isEmpty) return;
+      await notifier.compressSelected(zipName.trim());
+    } else if (value == 'extract') {
+      if (state.selectedPaths.length != 1) return;
+      final zipPath = state.selectedPaths.first;
+      await _handleExtract(context, ref, zipPath);
     }
+  }
+
+  // ---------------- Fase 5: Archive (Compress/Extract) ----------------
+
+  Future<String?> _showCompressNameDialog(BuildContext context, String suggestedName) {
+    final controller = TextEditingController(text: suggestedName);
+    return showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Compress'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'Nama file ZIP',
+            suffixText: '.zip',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Batal'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: dalxAccent),
+            onPressed: () => Navigator.pop(context, controller.text),
+            child: const Text('Compress'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _handleExtract(BuildContext context, WidgetRef ref, String zipPath) async {
+    final choice = await _showExtractChoiceDialog(context);
+    if (choice == null) return; // dibatalkan lewat X
+
+    final notifier = ref.read(explorerProvider(rootPath).notifier);
+    String? destinationDir;
+
+    if (choice == 'here') {
+      final currentPath = ref.read(explorerProvider(rootPath)).currentPath;
+      destinationDir = currentPath;
+    } else if (choice == 'pick') {
+      if (!context.mounted) return;
+      destinationDir = await showFolderPicker(context, ref, initialPath: rootPath);
+    }
+    if (destinationDir == null) return; // dibatalkan di folder picker
+
+    final hasConflict = await notifier.checkExtractConflict(zipPath, destinationDir);
+    var strategy = ConflictStrategy.renameAuto;
+    if (hasConflict) {
+      if (!context.mounted) return;
+      final zipName = zipPath.split('/').last;
+      final baseName = zipName.toLowerCase().endsWith('.zip')
+          ? zipName.substring(0, zipName.length - 4)
+          : zipName;
+      final chosen = await _showConflictDialog(context, [baseName]);
+      if (chosen == null) return;
+      strategy = chosen;
+    }
+
+    await notifier.extractArchive(zipPath, destinationDir, strategy: strategy);
+  }
+
+  // Dialog "Extract" dengan tombol X batal di kiri atas judul, dan 2
+  // pilihan tujuan: "Di sini" (folder tempat zip berada) atau "Pilih"
+  // (folder picker terpisah, lihat folder_picker_screen.dart).
+  Future<String?> _showExtractChoiceDialog(BuildContext context) {
+    return showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        titlePadding: const EdgeInsets.fromLTRB(4, 8, 16, 0),
+        title: Row(
+          children: [
+            IconButton(
+              icon: const Icon(Icons.close),
+              onPressed: () => Navigator.pop(context),
+            ),
+            const Text('Extract'),
+          ],
+        ),
+        contentPadding: const EdgeInsets.fromLTRB(0, 8, 0, 8),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.unarchive_outlined, color: dalxAccent),
+              title: const Text('Di sini'),
+              subtitle: const Text('Folder tempat file ZIP ini berada'),
+              onTap: () => Navigator.pop(context, 'here'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.folder_open_outlined, color: dalxAccent),
+              title: const Text('Pilih'),
+              subtitle: const Text('Pilih folder tujuan sendiri'),
+              onTap: () => Navigator.pop(context, 'pick'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   // Selalu tanya konfirmasi sebelum hapus — ini perilaku BAKU, tidak
@@ -392,22 +536,91 @@ class ExplorerScreen extends ConsumerWidget {
     );
   }
 
-  // ---------------- Paste Bar ----------------
+  // ---------------- Clipboard Bar (bawah layar) ----------------
+  //
+  // Muncul selama ada item copy/cut yang belum di-paste. Cuma 2
+  // tombol: Batal (buang clipboard, tidak jadi apa-apa) dan Tempel
+  // (paste ke folder yang sedang dibuka — lewat cek konflik nama
+  // dulu kalau perlu).
 
-  Widget _buildPasteBar(ExplorerNotifier notifier) {
-    return Container(
-      color: dalxAccent.withOpacity(0.08),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Row(
-        children: [
-          const Icon(Icons.content_paste, size: 16, color: dalxAccent),
-          const SizedBox(width: 8),
-          const Expanded(
-            child: Text('Ada item siap ditempel di sini', style: TextStyle(fontSize: 12)),
+  Widget _buildClipboardBar(BuildContext context, WidgetRef ref, ExplorerNotifier notifier) {
+    return SafeArea(
+      top: false,
+      child: Container(
+        color: dalxAccent.withOpacity(0.10),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        child: Row(
+          children: [
+            Expanded(
+              child: _ClipboardBarButton(
+                icon: Icons.close,
+                label: 'Batal',
+                onTap: notifier.cancelPendingPaste,
+              ),
+            ),
+            Container(width: 1, height: 36, color: dalxAccent.withOpacity(0.25)),
+            Expanded(
+              child: _ClipboardBarButton(
+                icon: Icons.content_paste,
+                label: 'Tempel',
+                color: dalxAccent,
+                onTap: () => _handlePasteWithConflictCheck(context, notifier),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Cek dulu apakah ada nama yang bentrok di folder tujuan. Kalau
+  // ada, tanya user mau Lewati/Timpa/Ganti Nama Otomatis lewat
+  // dialog. Kalau user membatalkan dialog itu, paste dibatalkan
+  // total (clipboard TETAP ada, supaya bisa dicoba lagi/paste di
+  // folder lain).
+  Future<void> _handlePasteWithConflictCheck(BuildContext context, ExplorerNotifier notifier) async {
+    final conflicts = await notifier.checkPasteConflicts();
+
+    var strategy = ConflictStrategy.renameAuto;
+    if (conflicts.isNotEmpty) {
+      if (!context.mounted) return;
+      final chosen = await _showConflictDialog(context, conflicts);
+      if (chosen == null) return; // dibatalkan, clipboard tetap ada
+      strategy = chosen;
+    }
+
+    await notifier.pasteHere(strategy: strategy);
+  }
+
+  Future<ConflictStrategy?> _showConflictDialog(BuildContext context, List<String> conflictNames) {
+    final preview = conflictNames.length <= 3
+        ? conflictNames.join(', ')
+        : '${conflictNames.take(3).join(', ')}, +${conflictNames.length - 3} lainnya';
+
+    return showDialog<ConflictStrategy>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Nama sudah ada'),
+        content: Text(
+          '${conflictNames.length} item sudah ada di folder ini: $preview.\n\n'
+          'Pilih tindakan untuk item yang bentrok:',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Batal'),
           ),
           TextButton(
-            onPressed: notifier.pasteHere,
-            child: const Text('Paste'),
+            onPressed: () => Navigator.pop(context, ConflictStrategy.skip),
+            child: const Text('Lewati'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, ConflictStrategy.overwrite),
+            child: const Text('Timpa'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, ConflictStrategy.renameAuto),
+            child: const Text('Ganti Nama Otomatis'),
           ),
         ],
       ),
@@ -723,6 +936,45 @@ class _MoreMenuButton extends StatelessWidget {
           ListTile(title: const Text('Tanggal'), onTap: () { notifier.setSortMode(SortMode.date); Navigator.pop(context); }),
           ListTile(title: const Text('Ukuran'), onTap: () { notifier.setSortMode(SortMode.size); Navigator.pop(context); }),
         ],
+      ),
+    );
+  }
+}
+
+// Tombol icon+label di clipboard bar bawah — dibuat lebih besar
+// (dibanding IconButton toolbar biasa) supaya gampang di-tap dan
+// jelas apa fungsinya tanpa perlu tooltip.
+class _ClipboardBarButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color? color;
+  final VoidCallback onTap;
+
+  const _ClipboardBarButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 24, color: color),
+            const SizedBox(height: 3),
+            Text(
+              label,
+              style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w500, color: color),
+            ),
+          ],
+        ),
       ),
     );
   }

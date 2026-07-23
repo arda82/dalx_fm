@@ -11,11 +11,13 @@
 // Folder, New File, Rename, Duplicate) dan navigasi.
 
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/events/event_bus.dart';
 import '../../core/events/event_catalog.dart';
 import '../../core/models/file_item.dart';
 import '../file_engine/file_engine.dart';
+import '../task_queue/task.dart';
 import '../task_queue/task_queue.dart';
 
 enum ViewMode { list, grid }
@@ -247,21 +249,90 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
     state = state.copyWith(selectedPaths: {});
   }
 
+  /// Batalkan clipboard copy/cut yang sedang menunggu di-paste, tanpa
+  /// menyalin/memindah apa pun. Dipanggil dari tombol "Batal" di bar
+  /// clipboard bawah layar.
+  void cancelPendingPaste() {
+    _cutPaths = null;
+    _pendingCopyPaths = null;
+    state = state.copyWith(); // trigger rebuild (field ini di luar ExplorerState)
+  }
+
+  /// Cek apakah ada nama item di clipboard yang sudah dipakai di
+  /// folder tujuan saat ini. Dipanggil dari explorer_screen SEBELUM
+  /// pasteHere, supaya bisa munculkan dialog Lewati/Timpa/Ganti Nama
+  /// Otomatis kalau memang ada bentrok. Return list nama yang bentrok
+  /// (kosong berarti aman, langsung paste tanpa dialog).
+  Future<List<String>> checkPasteConflicts() async {
+    final destination = state.currentPath;
+    final paths = _cutPaths ?? _pendingCopyPaths;
+    if (destination == null || paths == null || paths.isEmpty) return [];
+
+    final conflicts = <String>[];
+    for (final path in paths) {
+      final name = path.split(Platform.pathSeparator).last;
+      final destPath = '$destination${Platform.pathSeparator}$name';
+      if (await File(destPath).exists() || await Directory(destPath).exists()) {
+        conflicts.add(name);
+      }
+    }
+    return conflicts;
+  }
+
   /// Tempel (paste) item yang sebelumnya di-copy/cut ke folder yang
-  /// sedang dibuka.
-  Future<void> pasteHere() async {
+  /// sedang dibuka. [strategy] dipakai kalau ada nama yang bentrok —
+  /// default renameAuto aman dipakai walau tidak ada konflik sama
+  /// sekali (tidak berpengaruh kalau tidak ada bentrok).
+  Future<void> pasteHere({ConflictStrategy strategy = ConflictStrategy.renameAuto}) async {
     final destination = state.currentPath;
     if (destination == null) return;
 
     if (_cutPaths != null && _cutPaths!.isNotEmpty) {
       final paths = _cutPaths!;
       _cutPaths = null;
-      await _taskQueue.move(paths, destination);
+      await _taskQueue.move(paths, destination, strategy: strategy);
     } else if (_pendingCopyPaths != null && _pendingCopyPaths!.isNotEmpty) {
       final paths = _pendingCopyPaths!;
       _pendingCopyPaths = null;
-      await _taskQueue.copy(paths, destination);
+      await _taskQueue.copy(paths, destination, strategy: strategy);
     }
+  }
+
+  // ---------------- Fase 5: Archive (Compress/Extract) ----------------
+
+  /// Kompres item yang sedang terpilih jadi satu file ZIP di folder
+  /// yang sedang dibuka. [zipFileName] dari input dialog user.
+  Future<void> compressSelected(String zipFileName) async {
+    final destination = state.currentPath;
+    final paths = state.selectedPaths.toList();
+    if (destination == null || paths.isEmpty) return;
+    state = state.copyWith(selectedPaths: {});
+    await _taskQueue.compress(paths, destination, zipFileName);
+  }
+
+  /// Cek apakah sub-folder hasil extract (nama = nama zip tanpa
+  /// ".zip") sudah ada di folder tujuan. Dipanggil dari
+  /// explorer_screen SEBELUM extractArchive, supaya bisa munculkan
+  /// dialog Lewati/Timpa/Ganti Nama Otomatis kalau memang bentrok.
+  Future<bool> checkExtractConflict(String zipPath, String destinationDir) async {
+    final zipName = zipPath.split(Platform.pathSeparator).last;
+    final baseName = zipName.toLowerCase().endsWith('.zip')
+        ? zipName.substring(0, zipName.length - 4)
+        : zipName;
+    final destPath = '$destinationDir${Platform.pathSeparator}$baseName';
+    return await Directory(destPath).exists() || await File(destPath).exists();
+  }
+
+  /// Ekstrak [zipPath] ke [destinationDir] — [destinationDir] bisa
+  /// folder saat ini ("Di sini") atau folder hasil pilihan user lewat
+  /// folder picker ("Pilih").
+  Future<void> extractArchive(
+    String zipPath,
+    String destinationDir, {
+    ConflictStrategy strategy = ConflictStrategy.renameAuto,
+  }) async {
+    state = state.copyWith(selectedPaths: {});
+    await _taskQueue.extract(zipPath, destinationDir, strategy: strategy);
   }
 
   // ---------------- Hidden Files, Sort & View Mode ----------------
