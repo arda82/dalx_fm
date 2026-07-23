@@ -36,6 +36,10 @@
 //   bisa swipe kiri/kanan tanpa keluar-masuk viewer.
 // - file video (mp4/mkv/webm/3gp/mov/avi) -> VideoViewerScreen
 //   (media_viewer, Fase 3).
+// - file .pdf -> PdfViewerScreen (doc_viewer, Fase 6) — basic
+//   scroll + pinch zoom aja, bukan editor.
+// - file .xlsx -> XlsxEditorScreen (doc_viewer, Fase 6) — grid
+//   editable penuh lewat pluto_grid, baca/tulis via package excel.
 // - file kode (dart/py/java/kt/c/cpp/js/ts/json/yaml/xml/html/css/
 //   md/sh/sql/go/rs/swift/php/rb) -> CodeEditorScreen (code_editor,
 //   Fase 4).
@@ -55,6 +59,8 @@ import '../../core/models/file_item.dart';
 import '../../core/native_bridge/native_bridge.dart';
 import '../../core/settings/app_settings.dart';
 import '../code_editor/code_editor_screen.dart';
+import '../doc_viewer/pdf_viewer_screen.dart';
+import '../doc_viewer/xlsx_editor_screen.dart';
 import '../favorites/favorites_service.dart';
 import '../file_engine/file_engine.dart';
 import '../media_viewer/image_viewer_screen.dart';
@@ -676,6 +682,22 @@ class ExplorerScreen extends ConsumerWidget {
       Navigator.push(
         context,
         MaterialPageRoute(builder: (_) => VideoViewerScreen(path: item.path)),
+      );
+      return;
+    }
+
+    if (item.isPdf) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => PdfViewerScreen(path: item.path)),
+      );
+      return;
+    }
+
+    if (item.isSpreadsheet) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => XlsxEditorScreen(path: item.path)),
       );
       return;
     }

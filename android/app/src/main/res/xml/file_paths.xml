@@ -1,5 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- root-path: satu-satunya jenis entri yang nunjuk ke root
+         filesystem absolut ("/"), bukan direktori "external storage"
+         bawaan Android. Ini yang dipakai buat Share/Open With file
+         dari SD Card & USB OTG — mount point-nya beda-beda per
+         device/kartu (mis. /storage/8A7D-737C/) dan TIDAK pernah
+         ke-cover oleh <external-path>, yang selalu terikat ke
+         Environment.getExternalStorageDirectory() (storage utama
+         /storage/emulated/0/ doang). Aman dipakai karena DalX udah
+         punya MANAGE_EXTERNAL_STORAGE — akses filesystem-nya di
+         level OS emang udah seluas itu, FileProvider-nya aja yang
+         perlu "diberitahu" boleh generate content:// URI dari situ. -->
+    <root-path name="root_files" path="." />
     <external-path name="external_files" path="." />
     <external-path name="internal_storage" path="/storage/emulated/0/" />
     <cache-path name="cache_files" path="." />

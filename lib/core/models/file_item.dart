@@ -69,4 +69,17 @@ class FileItem {
   static const _archiveExts = {'zip'};
 
   bool get isArchive => !isFolder && _archiveExts.contains(extension);
+
+  // ---------------- Fase 6: Doc Viewer ----------------
+  // Dipakai explorer_ui buat tentuin tap file .pdf harus buka
+  // PdfViewerScreen, dan tap file .xlsx harus buka XlsxEditorScreen —
+  // alih-alih jalur Open With (Fase 1) seperti biasa. .xls (format
+  // lama) SENGAJA tidak dimasukkan — package excel yang dipakai cuma
+  // baca/tulis format .xlsx (OOXML), bukan .xls biner lama.
+
+  static const _pdfExts = {'pdf'};
+  static const _spreadsheetExts = {'xlsx'};
+
+  bool get isPdf => !isFolder && _pdfExts.contains(extension);
+  bool get isSpreadsheet => !isFolder && _spreadsheetExts.contains(extension);
 }
