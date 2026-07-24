@@ -1127,6 +1127,22 @@ class _FileListTile extends StatelessWidget {
     return Container(
       color: isSelected ? dalxAccent.withOpacity(0.12) : null,
       child: ListTile(
+        // dense + visualDensity: baris jadi lebih rapat (sebelumnya
+        // kelonggaran vertikal terlalu jauh, terutama kelihatan pas
+        // banyak folder berturut-turut).
+        dense: true,
+        visualDensity: const VisualDensity(vertical: -2),
+        // Fix utama alignment: SEBELUMNYA subtitle folder diisi
+        // Text('') (string kosong) — itu tetap dihitung ListTile
+        // sebagai baris subtitle yang ada (cuma kosong doang), bukan
+        // "nggak ada subtitle". Efeknya ListTile dianggap 2-baris dan
+        // ikon leading ikut naik ke atas (top-aligned), bukan center
+        // sejajar teks. Sekarang null beneran kalau folder -> ListTile
+        // jadi 1-baris murni, ikon otomatis center.
+        subtitle: item.isFolder ? null : Text(_formatSize(item.sizeBytes)),
+        // Jaga-jaga tambahan: paksa center eksplisit biar konsisten
+        // di kombinasi 1-baris (folder) maupun 2-baris (file+ukuran).
+        titleAlignment: ListTileTitleAlignment.center,
         leading: isSelectMode
             ? Icon(
                 isSelected ? Icons.check_circle : Icons.circle_outlined,
@@ -1136,8 +1152,16 @@ class _FileListTile extends StatelessWidget {
                 item.isFolder ? Icons.folder : _iconForExtension(item.extension),
                 color: item.isFolder ? dalxAccent : Colors.grey,
               ),
-        title: Text(item.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-        subtitle: Text(item.isFolder ? '' : _formatSize(item.sizeBytes)),
+        title: Text(
+          item.name,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          // Dinaikkan lagi ke w600 — theme global sudah dinaikkan ke
+          // w500 (Fase 7 kemarin), tapi khusus daftar file yang jadi
+          // konten utama Explorer, dibuat lebih tebal lagi biar jelas
+          // terbaca sebagai nama file, bukan teks sekunder.
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
         onTap: onTap,
         onLongPress: onLongPress,
       ),
@@ -1209,7 +1233,7 @@ class _FileGridTile extends StatelessWidget {
                     item.name,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 11),
+                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
                     textAlign: TextAlign.center,
                   ),
                 ),

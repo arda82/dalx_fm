@@ -69,12 +69,26 @@ jobs:
           storeFile=dalx-release.jks
           EOF
 
-      - name: Build APK (release)
-        run: flutter build apk --release
+      # --split-per-abi: hasilkan APK TERPISAH per arsitektur CPU
+      # (armeabi-v7a/arm64-v8a/x86_64), bukan satu APK "gemuk" yang
+      # bawa native lib buat ketiganya sekaligus. Ini flag CLI resmi
+      # Flutter — SENGAJA bukan lewat splits{} manual di build.gradle,
+      # karena itu konflik sama abiFilters otomatis Flutter Gradle
+      # Plugin versi baru (lihat catatan di build.gradle).
+      - name: Build APK (release, split per ABI)
+        run: flutter build apk --release --split-per-abi
 
+      # Hasil --split-per-abi ada 3 file: app-armeabi-v7a-release.apk,
+      # app-arm64-v8a-release.apk, app-x86_64-release.apk. Upload
+      # ketiganya jadi satu artifact (di-zip otomatis sama GitHub) —
+      # download, extract, lalu pilih yang cocok sama HP kamu. HP
+      # Android keluaran beberapa tahun terakhir (termasuk Xiaomi/
+      # HyperOS) hampir pasti arm64-v8a — kalau ragu, cek di
+      # Settings > About Phone > kernel/CPU info, atau pasang app
+      # semacam "CPU-Z" buat lihat arsitektur pastinya.
       - name: Upload APK sebagai artifact
         uses: actions/upload-artifact@v4
         with:
           name: dalx-release-${{ github.run_number }}
-          path: build/app/outputs/flutter-apk/app-release.apk
+          path: build/app/outputs/flutter-apk/app-*-release.apk
           retention-days: 3

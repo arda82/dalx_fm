@@ -110,11 +110,11 @@ class DalXApp extends ConsumerWidget {
       // (SemiBold) buat judul, tanpa perlu ganti-ganti FontWeight
       // manual di tiap Text() satu-satu di seluruh app.
       textTheme: baseTextTheme.copyWith(
-        bodyLarge: baseTextTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w500),
-        bodyMedium: baseTextTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
+        bodyLarge: baseTextTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
+        bodyMedium: baseTextTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
         bodySmall: baseTextTheme.bodySmall?.copyWith(fontWeight: FontWeight.w500),
-        titleLarge: baseTextTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
-        titleMedium: baseTextTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+        titleLarge: baseTextTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+        titleMedium: baseTextTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
         titleSmall: baseTextTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
         labelLarge: baseTextTheme.labelLarge?.copyWith(fontWeight: FontWeight.w600),
       ),
