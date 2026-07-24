@@ -280,8 +280,11 @@ class _StorageCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final usedGB = info.usedBytes / (1024 * 1024 * 1024);
-    final totalGB = info.totalBytes / (1024 * 1024 * 1024);
+    // GB pakai basis desimal (1000^3), bukan biner (1024^3/GiB) —
+    // supaya angkanya matching dengan Settings Android & file manager
+    // lain (CX, dll), yang juga pakai basis desimal.
+    final usedGB = info.usedBytes / (1000 * 1000 * 1000);
+    final totalGB = info.totalBytes / (1000 * 1000 * 1000);
     final percent = (info.usedFraction * 1000).round() / 10; // 1 desimal
 
     return InkWell(
@@ -365,8 +368,10 @@ class _ExternalStorageCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final usedBytes = totalBytes - freeBytes;
     final usedFraction = totalBytes > 0 ? usedBytes / totalBytes : 0.0;
-    final usedGB = usedBytes / (1024 * 1024 * 1024);
-    final totalGB = totalBytes / (1024 * 1024 * 1024);
+    // Basis desimal (1000^3), konsisten dengan _StorageCard — lihat
+    // catatan di sana.
+    final usedGB = usedBytes / (1000 * 1000 * 1000);
+    final totalGB = totalBytes / (1000 * 1000 * 1000);
     final percent = (usedFraction * 1000).round() / 10;
 
     return InkWell(
@@ -435,8 +440,9 @@ class _RamCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final usedGB = info.usedBytes / (1024 * 1024 * 1024);
-    final totalGB = info.totalBytes / (1024 * 1024 * 1024);
+    // Basis desimal (1000^3), konsisten dengan kartu storage lain.
+    final usedGB = info.usedBytes / (1000 * 1000 * 1000);
+    final totalGB = info.totalBytes / (1000 * 1000 * 1000);
     final percent = (info.usedFraction * 1000).round() / 10;
 
     return Container(

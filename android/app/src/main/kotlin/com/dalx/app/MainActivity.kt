@@ -1,10 +1,12 @@
 package com.dalx.app
 
 import android.app.ActivityManager
+import android.app.usage.StorageStatsManager
 import android.content.Context
 import android.content.Intent
 import android.os.Environment
 import android.os.StatFs
+import android.os.storage.StorageManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
@@ -95,15 +97,38 @@ class MainActivity : FlutterActivity() {
     }
 
     /**
-     * Baca kapasitas Internal Storage lewat StatFs. Mengembalikan
-     * total & free dalam bytes (Long) — perhitungan used dan
-     * persentase dilakukan di sisi Dart supaya logic-nya satu tempat.
+     * Baca kapasitas Internal Storage. [freeBytes] tetap dari StatFs
+     * (representasi ruang kosong yang akurat & wajar). [totalBytes]
+     * SENGAJA diambil dari StorageStatsManager.getTotalBytes(), BUKAN
+     * StatFs.blockCountLong — StatFs cuma menghitung block yang benar-
+     * benar ada di partisi data (biasanya ~10% lebih kecil dari
+     * kapasitas nominal chip, karena overhead sistem/wear-leveling
+     * tidak masuk hitungan block filesystem biasa), sedangkan
+     * StorageStatsManager mengembalikan kapasitas "resmi" yang sama
+     * dengan yang ditampilkan Settings Android & file manager lain
+     * (CX, dll). Ditemukan lewat perbandingan langsung: StatFs sempat
+     * menunjukkan 106.7 GB pada device 128 GB, sementara Settings &
+     * CX kompak menunjukkan 128 GB.
+     *
+     * Mengembalikan total & free dalam bytes (Long) — perhitungan
+     * used dan persentase dilakukan di sisi Dart supaya logic-nya
+     * satu tempat.
      */
     private fun getStorageInfo(): Map<String, Long> {
         val path = Environment.getExternalStorageDirectory()
         val stat = StatFs(path.path)
-        val totalBytes = stat.blockCountLong * stat.blockSizeLong
         val freeBytes = stat.availableBlocksLong * stat.blockSizeLong
+
+        val totalBytes = try {
+            val storageStatsManager = getSystemService(Context.STORAGE_STATS_SERVICE) as StorageStatsManager
+            storageStatsManager.getTotalBytes(StorageManager.UUID_DEFAULT)
+        } catch (e: Exception) {
+            // Fallback kalau StorageStatsManager gagal (seharusnya
+            // tidak terjadi di API 30+, tapi jaga-jaga daripada
+            // storage overview error total).
+            stat.blockCountLong * stat.blockSizeLong
+        }
+
         return mapOf(
             "totalBytes" to totalBytes,
             "freeBytes" to freeBytes
