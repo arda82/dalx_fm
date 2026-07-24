@@ -16,6 +16,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/events/event_bus.dart';
 import '../../core/events/event_catalog.dart';
 import '../../core/models/file_item.dart';
+import '../../core/settings/app_settings.dart';
 import '../file_engine/file_engine.dart';
 import '../task_queue/task.dart';
 import '../task_queue/task_queue.dart';
@@ -77,8 +78,19 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
   List<String>? _cutPaths;
   List<String>? _pendingCopyPaths;
 
-  ExplorerNotifier(this._fileEngine, this._taskQueue, DalXEventBus eventBus)
-      : super(const ExplorerState()) {
+  ExplorerNotifier(this._fileEngine, this._taskQueue, DalXEventBus eventBus, ExplorerDefaults defaults)
+      : super(ExplorerState(
+          viewMode: defaults.defaultView == 'grid' ? ViewMode.grid : ViewMode.list,
+          sortMode: _sortModeFromString(defaults.defaultSort),
+          showHidden: defaults.defaultHidden,
+        )) {
+    // FileEngine juga perlu tau default sort/hidden dari awal, biar
+    // openFolder() pertama kali langsung konsisten sama state di atas
+    // (bukan cuma tampilan awal doang yang keliatan default, tapi
+    // urutan/filter hasil baca folder-nya juga).
+    _fileEngine.sortMode = state.sortMode;
+    _fileEngine.showHidden = state.showHidden;
+
     // explorer_ui cukup dengar event — tidak perlu tahu modul mana
     // yang memicunya (file_engine untuk navigasi/rename/create/
     // duplicate, TaskQueue untuk copy/move/delete yang lebih berat).
@@ -100,6 +112,17 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
     eventBus.stream.whereEventType<FileCreated>().listen((_) {
       _syncFromCurrentFolder(force: true);
     });
+  }
+
+  static SortMode _sortModeFromString(String s) {
+    switch (s) {
+      case 'date':
+        return SortMode.date;
+      case 'size':
+        return SortMode.size;
+      default:
+        return SortMode.name;
+    }
   }
 
   bool get canGoBack => _fileEngine.canGoBack;
@@ -377,6 +400,14 @@ final explorerProvider = StateNotifierProvider.family<ExplorerNotifier, Explorer
     final fileEngine = ref.watch(fileEngineProvider(rootPath));
     final taskQueue = ref.watch(taskQueueProvider.notifier);
     final eventBus = ref.watch(eventBusProvider);
-    return ExplorerNotifier(fileEngine, taskQueue, eventBus);
+    // .read (bukan .watch) SENGAJA — defaults cuma dipakai sekali saat
+    // ExplorerNotifier ini pertama kali dibuat (initial state). Kalau
+    // user ubah default di Settings pas Explorer lagi kebuka, itu
+    // cuma berlaku buat sesi Explorer BARU berikutnya, bukan langsung
+    // ubah state Explorer yang sedang aktif (yang benar, karena kalau
+    // .watch, ganti default akan ke-reset Explorer yang lagi dibuka
+    // user tanpa diminta).
+    final defaults = ref.read(explorerDefaultsProvider);
+    return ExplorerNotifier(fileEngine, taskQueue, eventBus, defaults);
   },
 );

@@ -6,19 +6,19 @@
 //
 // Fase 1.5: SD Card & USB OTG aktif — query lewat storageAccessProvider
 // (core/storage_access), cari volume yang cocok lewat findByHint().
-// Fase 2: Favorites aktif — lewat favoritesProvider (persist via
-// SharedPreferences, lihat features/favorites/favorites_service.dart).
-// Settings aktif — baru berisi toggle Root Mode (core/settings/
-// app_settings.dart). Isi Settings lengkap menyusul Fase 7.
-//
-// !!! DEBUG SEMENTARA !!! _openExternalStorage saat ini nampilin
-// dialog isi mentah semua volume (label/path/isPrimary/isRemovable/
-// state) sebelum navigasi — buat diagnosa kenapa SD Card/USB OTG
-// kebuka isinya Internal Storage. HAPUS blok "DEBUG SEMENTARA" di
-// bawah begitu bug ketemu, jangan sampai kebawa ke rilis.
+// Fase 2: Favorites aktif — lewat favoritesProvider.
+// Fase 7: Settings lengkap (Theme/Language/Explorer defaults/dll).
+// Layar Awal sekarang baca homePathProvider — null = StorageOverview-
+// Screen (default), non-null = ExplorerScreen(rootPath: itu), user
+// atur lewat Settings > Layar Awal. Bersihkan Cache aktif, pakai
+// CacheManager (core/cache/cache_manager.dart) — hitung ukuran dulu,
+// minta konfirmasi, baru hapus.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/cache/cache_manager.dart';
+import '../../core/localization/app_strings.dart';
+import '../../core/settings/app_settings.dart';
 import '../../core/storage_access/storage_access.dart';
 import '../favorites/favorites_screen.dart';
 import '../settings/settings_screen.dart';
@@ -31,12 +31,15 @@ class AppDrawer extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final strings = AppStrings.of(context);
+    final homePath = ref.watch(homePathProvider);
+
     return Drawer(
       child: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _buildHeader(),
+            _buildHeader(strings),
             const Divider(height: 1),
             Expanded(
               child: ListView(
@@ -44,19 +47,23 @@ class AppDrawer extends ConsumerWidget {
                 children: [
                   _DrawerTile(
                     icon: Icons.dashboard_outlined,
-                    label: 'Layar Awal',
+                    label: strings.drawerHome,
                     active: true,
                     onTap: () {
                       Navigator.pop(context);
                       Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (_) => const StorageOverviewScreen()),
+                        MaterialPageRoute(
+                          builder: (_) => homePath == null
+                              ? const StorageOverviewScreen()
+                              : ExplorerScreen(rootPath: homePath),
+                        ),
                       );
                     },
                   ),
                   _DrawerTile(
                     icon: Icons.smartphone_outlined,
-                    label: 'Internal Storage',
+                    label: strings.drawerInternalStorage,
                     onTap: () {
                       Navigator.pop(context);
                       // rootPath Internal Storage ditentukan di main.dart
@@ -72,27 +79,27 @@ class AppDrawer extends ConsumerWidget {
                   ),
                   _DrawerTile(
                     icon: Icons.sd_card_outlined,
-                    label: 'SD Card',
+                    label: strings.drawerSdCard,
                     onTap: () => _openExternalStorage(
                       context,
                       ref,
                       hint: 'sd',
-                      label: 'SD Card',
+                      label: strings.drawerSdCard,
                     ),
                   ),
                   _DrawerTile(
                     icon: Icons.usb_outlined,
-                    label: 'USB OTG',
+                    label: strings.drawerUsbOtg,
                     onTap: () => _openExternalStorage(
                       context,
                       ref,
                       hint: 'usb',
-                      label: 'USB OTG',
+                      label: strings.drawerUsbOtg,
                     ),
                   ),
                   _DrawerTile(
                     icon: Icons.star_outline,
-                    label: 'Favorites',
+                    label: strings.drawerFavorites,
                     onTap: () {
                       Navigator.pop(context);
                       Navigator.push(
@@ -103,7 +110,7 @@ class AppDrawer extends ConsumerWidget {
                   ),
                   _DrawerTile(
                     icon: Icons.download_outlined,
-                    label: 'Task Queue',
+                    label: strings.drawerTaskQueue,
                     onTap: () {
                       Navigator.pop(context);
                       Navigator.push(
@@ -114,13 +121,13 @@ class AppDrawer extends ConsumerWidget {
                   ),
                   _DrawerTile(
                     icon: Icons.cleaning_services_outlined,
-                    label: 'Bersihkan Cache',
-                    disabled: true, // aktif di Fase 7
+                    label: strings.drawerClearCache,
+                    onTap: () => _handleClearCache(context, strings),
                   ),
                   const Divider(height: 1),
                   _DrawerTile(
                     icon: Icons.settings_outlined,
-                    label: 'Settings',
+                    label: strings.drawerSettings,
                     onTap: () {
                       Navigator.pop(context);
                       Navigator.push(
@@ -131,7 +138,7 @@ class AppDrawer extends ConsumerWidget {
                   ),
                   _DrawerTile(
                     icon: Icons.info_outline,
-                    label: 'About',
+                    label: strings.drawerAbout,
                     disabled: true,
                   ),
                 ],
@@ -148,6 +155,49 @@ class AppDrawer extends ConsumerWidget {
           ],
         ),
       ),
+    );
+  }
+
+  // Bersihkan Cache (Fase 7): hitung ukuran cache dulu (bukan
+  // langsung hapus tanpa konfirmasi — walau "aksi langsung" di
+  // ARCHITECTURE.md, konfirmasi tetap masuk akal buat aksi yang
+  // menghapus data, sekecil apa pun dampaknya). Kalau cache kosong,
+  // langsung kasih tau tanpa dialog konfirmasi (nggak ada gunanya).
+  Future<void> _handleClearCache(BuildContext context, AppStrings strings) async {
+    Navigator.pop(context); // tutup drawer dulu
+    final cacheManager = CacheManager();
+    final sizeBytes = await cacheManager.getCacheSize();
+
+    if (!context.mounted) return;
+
+    if (sizeBytes == 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(strings.cacheEmpty)),
+      );
+      return;
+    }
+
+    final sizeLabel = CacheManager.formatBytes(sizeBytes);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(strings.cacheClearConfirmTitle),
+        content: Text(strings.cacheClearConfirmBody(sizeLabel)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: Text(strings.cancel)),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(strings.drawerClearCache),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    final freedBytes = await cacheManager.clearCache();
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(strings.cacheClearedBody(CacheManager.formatBytes(freedBytes)))),
     );
   }
 
@@ -171,7 +221,7 @@ class AppDrawer extends ConsumerWidget {
 
     if (match == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Tidak ada $label terpasang')),
+        SnackBar(content: Text(AppStrings.of(context).notMounted(label))),
       );
       return;
     }
@@ -182,7 +232,7 @@ class AppDrawer extends ConsumerWidget {
     );
   }
 
-  Widget _buildHeader() {
+  Widget _buildHeader(AppStrings strings) {
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 28, 20, 20),
       child: Row(
@@ -209,11 +259,11 @@ class AppDrawer extends ConsumerWidget {
             ),
           ),
           const SizedBox(width: 10),
-          const Column(
+          Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('DalX', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-              Text('Explore · Find · Manage', style: TextStyle(fontSize: 10, color: Colors.grey)),
+              const Text('DalX', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              Text(strings.drawerTagline, style: const TextStyle(fontSize: 10, color: Colors.grey)),
             ],
           ),
         ],

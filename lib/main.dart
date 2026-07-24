@@ -7,10 +7,13 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'core/localization/app_strings.dart';
 import 'core/permissions/permission_manager.dart';
 import 'core/native_bridge/intent_bridge.dart';
 import 'core/native_bridge/native_bridge.dart';
+import 'core/settings/app_settings.dart';
 import 'features/explorer_ui/explorer_screen.dart';
 import 'features/media_scanner/media_scanner_listener.dart';
 
@@ -29,17 +32,28 @@ void main() {
 
 const _internalStorageRoot = '/storage/emulated/0';
 
-class DalXApp extends StatelessWidget {
+class DalXApp extends ConsumerWidget {
   const DalXApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final themeMode = ref.watch(themeModeProvider);
+    final locale = ref.watch(localeProvider);
+
     return MaterialApp(
       title: 'DalX',
       debugShowCheckedModeBanner: false,
       theme: _buildTheme(Brightness.light),
       darkTheme: _buildTheme(Brightness.dark),
-      themeMode: ThemeMode.system,
+      themeMode: themeMode,
+      locale: Locale(locale == AppLocale.en ? 'en' : 'id'),
+      supportedLocales: const [Locale('id'), Locale('en')],
+      localizationsDelegates: const [
+        AppStringsDelegate(),
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       home: const _PermissionGate(),
     );
   }
@@ -137,25 +151,24 @@ class _PermissionGateState extends ConsumerState<_PermissionGate> {
             children: [
               const Icon(Icons.folder_open, size: 64, color: Color(0xFF0A84FF)),
               const SizedBox(height: 16),
-              const Text(
-                'DalX butuh izin akses penyimpanan',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+              Text(
+                AppStrings.of(context).permissionTitle,
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 8),
-              const Text(
-                'Untuk mengelola semua file kamu, termasuk file '
-                'tersembunyi, DalX perlu izin akses penyimpanan penuh.',
+              Text(
+                AppStrings.of(context).permissionBody,
                 textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey),
+                style: const TextStyle(color: Colors.grey),
               ),
               const SizedBox(height: 24),
               FilledButton(
                 onPressed: _requestPermission,
                 style: FilledButton.styleFrom(backgroundColor: const Color(0xFF0A84FF)),
-                child: const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                  child: Text('Berikan Izin'),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  child: Text(AppStrings.of(context).permissionGrantButton),
                 ),
               ),
               if (_errorMessage != null) ...[
@@ -167,7 +180,7 @@ class _PermissionGateState extends ConsumerState<_PermissionGate> {
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
-                    'Detail error: $_errorMessage',
+                    AppStrings.of(context).permissionErrorDetail(_errorMessage!),
                     style: const TextStyle(fontSize: 11, color: Colors.red),
                     textAlign: TextAlign.center,
                   ),

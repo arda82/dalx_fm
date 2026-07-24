@@ -5,6 +5,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/localization/app_strings.dart';
 import 'task.dart';
 import 'task_queue.dart';
 
@@ -15,21 +16,22 @@ class TaskQueueScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final strings = AppStrings.of(context);
     final tasks = ref.watch(taskQueueProvider);
     final notifier = ref.read(taskQueueProvider.notifier);
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Task Queue'),
+        title: Text(strings.taskQueueTitle),
         actions: [
           TextButton(
             onPressed: tasks.any((t) => t.isDone) ? notifier.clearCompleted : null,
-            child: const Text('Hapus selesai'),
+            child: Text(strings.clearCompleted),
           ),
         ],
       ),
       body: tasks.isEmpty
-          ? const Center(child: Text('Tidak ada task berjalan'))
+          ? Center(child: Text(strings.noRunningTasks))
           : ListView.builder(
               padding: const EdgeInsets.all(12),
               itemCount: tasks.length,
@@ -49,6 +51,7 @@ class _TaskCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
     final isDone = task.status == TaskStatus.completed;
     final isPaused = task.status == TaskStatus.paused;
 
@@ -76,13 +79,13 @@ class _TaskCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        _taskTitle(task),
+                        _taskTitle(strings, task),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13.5),
                       ),
                       Text(
-                        '${task.operationLabel}${task.errorMessage != null ? " · ${task.errorMessage}" : ""}',
+                        '${_operationLabel(strings, task.type)}${task.errorMessage != null ? " · ${task.errorMessage}" : ""}',
                         style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
                       ),
                     ],
@@ -115,7 +118,7 @@ class _TaskCard extends StatelessWidget {
               Align(
                 alignment: Alignment.centerRight,
                 child: Text(
-                  isPaused ? 'Dijeda' : '${(task.progress * 100).toStringAsFixed(0)}%',
+                  isPaused ? strings.taskPaused : '${(task.progress * 100).toStringAsFixed(0)}%',
                   style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
                 ),
               ),
@@ -126,10 +129,28 @@ class _TaskCard extends StatelessWidget {
     );
   }
 
-  String _taskTitle(DalXTask task) {
+  String _taskTitle(AppStrings strings, DalXTask task) {
     final firstName = task.sourcePaths.first.split('/').last;
     if (task.sourcePaths.length == 1) return firstName;
-    return '$firstName +${task.sourcePaths.length - 1} lainnya';
+    return '$firstName ${strings.andMore(task.sourcePaths.length - 1)}';
+  }
+
+  // Label dilokalisasi di sini (bukan task.operationLabel di
+  // task.dart) karena DalXTask model murni, tidak punya akses
+  // BuildContext buat AppStrings.of(context).
+  String _operationLabel(AppStrings strings, TaskType type) {
+    switch (type) {
+      case TaskType.copy:
+        return strings.taskCopy;
+      case TaskType.move:
+        return strings.taskMove;
+      case TaskType.delete:
+        return strings.taskDelete;
+      case TaskType.compress:
+        return strings.taskCompress;
+      case TaskType.extract:
+        return strings.taskExtract;
+    }
   }
 
   IconData _iconForType(TaskType type) {

@@ -55,6 +55,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:share_plus/share_plus.dart';
+import '../../core/localization/app_strings.dart';
 import '../../core/models/file_item.dart';
 import '../../core/native_bridge/native_bridge.dart';
 import '../../core/settings/app_settings.dart';
@@ -146,8 +147,16 @@ class ExplorerScreen extends ConsumerWidget {
         // membersihkan seluruh back-stack, biar hasilnya konsisten
         // dari jalur masuk manapun — bukan cuma pop satu level yang
         // bisa mendarat di tempat berbeda tergantung cara masuknya.
+        // homePathProvider: null = StorageOverviewScreen (default),
+        // non-null = user udah arahkan Layar Awal ke folder tertentu
+        // lewat Settings.
+        final homePath = ref.read(homePathProvider);
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const StorageOverviewScreen()),
+          MaterialPageRoute(
+            builder: (_) => homePath == null
+                ? const StorageOverviewScreen()
+                : ExplorerScreen(rootPath: homePath),
+          ),
           (route) => false,
         );
       },
@@ -160,7 +169,17 @@ class ExplorerScreen extends ConsumerWidget {
           children: [
             if (!explorerState.isSelectMode || pickMode) _buildBreadcrumb(explorerState),
             if (!explorerState.isSelectMode || pickMode) const Divider(height: 1),
-            Expanded(child: _buildFileList(context, ref, explorerState, notifier)),
+            Expanded(
+              child: MediaQuery(
+                // Fase 7: Font Size — cuma bungkus daftar file, bukan
+                // seluruh Scaffold (AppBar/dialog tetap ukuran normal),
+                // sesuai desain "Font Size" di bawah section Explorer.
+                data: MediaQuery.of(context).copyWith(
+                  textScaler: TextScaler.linear(ref.watch(fontScaleProvider)),
+                ),
+                child: _buildFileList(context, ref, explorerState, notifier),
+              ),
+            ),
             if (!pickMode && notifier.hasPendingPaste)
               _buildClipboardBar(context, ref, notifier),
           ],
@@ -178,6 +197,7 @@ class ExplorerScreen extends ConsumerWidget {
     ExplorerNotifier notifier,
   ) {
     final folderName = state.currentPath?.split('/').last ?? '';
+    final strings = AppStrings.of(context);
     return AppBar(
       leading: pickMode
           ? IconButton(
@@ -191,8 +211,8 @@ class ExplorerScreen extends ConsumerWidget {
               ),
             ),
       title: Text(pickMode
-          ? 'Pilih File'
-          : (folderName.isEmpty ? 'DalX' : folderName)),
+          ? strings.pickFileTitle
+          : (folderName.isEmpty ? strings.appName : folderName)),
       actions: [
         IconButton(
           icon: const Icon(Icons.search),
@@ -251,13 +271,14 @@ class ExplorerScreen extends ConsumerWidget {
     // file .zip. Compress selalu boleh selama ada item terpilih
     // (apa pun tipenya, termasuk campuran file & folder).
     final canExtract = singleSelectedItem != null && singleSelectedItem.isArchive;
+    final strings = AppStrings.of(context);
 
     return AppBar(
       leading: IconButton(
         icon: const Icon(Icons.close),
         onPressed: notifier.exitSelectMode,
       ),
-      title: Text('${state.selectedPaths.length} dipilih'),
+      title: Text(strings.selectedCount(state.selectedPaths.length)),
       actions: [
         // Urutan sesuai mockup: Trash, Copy, Cut, Rename, titik-tiga.
         // (Duplicate dihapus dari sini — bikin dua icon "copy" mirip
@@ -284,16 +305,16 @@ class ExplorerScreen extends ConsumerWidget {
         PopupMenuButton<String>(
           onSelected: (value) => _handleActionMenuSelected(context, ref, value, state),
           itemBuilder: (context) => [
-            const PopupMenuItem(value: 'share', child: Text('Share')),
-            const PopupMenuItem(value: 'info', child: Text('File Info')),
+            PopupMenuItem(value: 'share', child: Text(strings.share)),
+            PopupMenuItem(value: 'info', child: Text(strings.fileInfo)),
             if (canOpenWith)
-              const PopupMenuItem(value: 'open_with', child: Text('Open With')),
-            const PopupMenuItem(value: 'compress', child: Text('Compress')),
+              PopupMenuItem(value: 'open_with', child: Text(strings.openWith)),
+            PopupMenuItem(value: 'compress', child: Text(strings.compress)),
             if (canExtract)
-              const PopupMenuItem(value: 'extract', child: Text('Extract')),
+              PopupMenuItem(value: 'extract', child: Text(strings.extract)),
             PopupMenuItem(
               value: 'favorite',
-              child: Text(allFavorited ? 'Hapus Favorit' : 'Tambah Favorit'),
+              child: Text(allFavorited ? strings.removeFromFavorites : strings.addToFavorites),
             ),
           ],
         ),
@@ -318,7 +339,7 @@ class ExplorerScreen extends ConsumerWidget {
       } catch (e) {
         if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Gagal membuka Share: $e')),
+          SnackBar(content: Text(AppStrings.of(context).shareFailed(e.toString()))),
         );
       }
     } else if (value == 'info') {
@@ -341,7 +362,7 @@ class ExplorerScreen extends ConsumerWidget {
       } catch (e) {
         if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Gagal membuka Open With: $e')),
+          SnackBar(content: Text(AppStrings.of(context).openWithFailed(e.toString()))),
         );
       }
     } else if (value == 'compress') {
@@ -365,27 +386,28 @@ class ExplorerScreen extends ConsumerWidget {
 
   Future<String?> _showCompressNameDialog(BuildContext context, String suggestedName) {
     final controller = TextEditingController(text: suggestedName);
+    final strings = AppStrings.of(context);
     return showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Compress'),
+        title: Text(strings.compress),
         content: TextField(
           controller: controller,
           autofocus: true,
-          decoration: const InputDecoration(
-            labelText: 'Nama file ZIP',
+          decoration: InputDecoration(
+            labelText: strings.compressDialogZipNameLabel,
             suffixText: '.zip',
           ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Batal'),
+            child: Text(strings.cancel),
           ),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: dalxAccent),
             onPressed: () => Navigator.pop(context, controller.text),
-            child: const Text('Compress'),
+            child: Text(strings.compress),
           ),
         ],
       ),
@@ -428,6 +450,7 @@ class ExplorerScreen extends ConsumerWidget {
   // pilihan tujuan: "Di sini" (folder tempat zip berada) atau "Pilih"
   // (folder picker terpisah, lihat folder_picker_screen.dart).
   Future<String?> _showExtractChoiceDialog(BuildContext context) {
+    final strings = AppStrings.of(context);
     return showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
@@ -438,7 +461,7 @@ class ExplorerScreen extends ConsumerWidget {
               icon: const Icon(Icons.close),
               onPressed: () => Navigator.pop(context),
             ),
-            const Text('Extract'),
+            Text(strings.extract),
           ],
         ),
         contentPadding: const EdgeInsets.fromLTRB(0, 8, 0, 8),
@@ -447,14 +470,14 @@ class ExplorerScreen extends ConsumerWidget {
           children: [
             ListTile(
               leading: const Icon(Icons.unarchive_outlined, color: dalxAccent),
-              title: const Text('Di sini'),
-              subtitle: const Text('Folder tempat file ZIP ini berada'),
+              title: Text(strings.extractDialogHere),
+              subtitle: Text(strings.extractDialogHereSubtitle),
               onTap: () => Navigator.pop(context, 'here'),
             ),
             ListTile(
               leading: const Icon(Icons.folder_open_outlined, color: dalxAccent),
-              title: const Text('Pilih'),
-              subtitle: const Text('Pilih folder tujuan sendiri'),
+              title: Text(strings.extractDialogPick),
+              subtitle: Text(strings.extractDialogPickSubtitle),
               onTap: () => Navigator.pop(context, 'pick'),
             ),
           ],
@@ -467,16 +490,17 @@ class ExplorerScreen extends ConsumerWidget {
   // ada opsi mematikannya di Settings. Lihat ARCHITECTURE.md bagian 6.
   Future<void> _confirmDelete(BuildContext context, ExplorerNotifier notifier, ExplorerState state) async {
     final count = state.selectedPaths.length;
+    final strings = AppStrings.of(context);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Hapus item?'),
-        content: Text('$count item akan dihapus. Tindakan ini tidak bisa dibatalkan.'),
+        title: Text(strings.deleteConfirmTitle),
+        content: Text(strings.deleteConfirmBody(count)),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Batal')),
+          TextButton(onPressed: () => Navigator.pop(context, false), child: Text(strings.cancel)),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Hapus', style: TextStyle(color: Colors.red)),
+            child: Text(strings.delete, style: const TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -489,16 +513,17 @@ class ExplorerScreen extends ConsumerWidget {
   Future<void> _showRenameDialog(BuildContext context, ExplorerNotifier notifier, String path) async {
     final currentName = path.split('/').last;
     final controller = TextEditingController(text: currentName);
+    final strings = AppStrings.of(context);
     final newName = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Rename'),
+        title: Text(strings.renameDialogTitle),
         content: TextField(controller: controller, autofocus: true),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Batal')),
+          TextButton(onPressed: () => Navigator.pop(context), child: Text(strings.cancel)),
           TextButton(
             onPressed: () => Navigator.pop(context, controller.text.trim()),
-            child: const Text('Simpan'),
+            child: Text(strings.save),
           ),
         ],
       ),
@@ -550,6 +575,7 @@ class ExplorerScreen extends ConsumerWidget {
   // dulu kalau perlu).
 
   Widget _buildClipboardBar(BuildContext context, WidgetRef ref, ExplorerNotifier notifier) {
+    final strings = AppStrings.of(context);
     return SafeArea(
       top: false,
       child: Container(
@@ -560,7 +586,7 @@ class ExplorerScreen extends ConsumerWidget {
             Expanded(
               child: _ClipboardBarButton(
                 icon: Icons.close,
-                label: 'Batal',
+                label: strings.clipboardCancel,
                 onTap: notifier.cancelPendingPaste,
               ),
             ),
@@ -568,7 +594,7 @@ class ExplorerScreen extends ConsumerWidget {
             Expanded(
               child: _ClipboardBarButton(
                 icon: Icons.content_paste,
-                label: 'Tempel',
+                label: strings.clipboardPaste,
                 color: dalxAccent,
                 onTap: () => _handlePasteWithConflictCheck(context, notifier),
               ),
@@ -599,34 +625,32 @@ class ExplorerScreen extends ConsumerWidget {
   }
 
   Future<ConflictStrategy?> _showConflictDialog(BuildContext context, List<String> conflictNames) {
+    final strings = AppStrings.of(context);
     final preview = conflictNames.length <= 3
         ? conflictNames.join(', ')
-        : '${conflictNames.take(3).join(', ')}, +${conflictNames.length - 3} lainnya';
+        : '${conflictNames.take(3).join(', ')}, ${strings.conflictAndMore(conflictNames.length - 3)}';
 
     return showDialog<ConflictStrategy>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Nama sudah ada'),
-        content: Text(
-          '${conflictNames.length} item sudah ada di folder ini: $preview.\n\n'
-          'Pilih tindakan untuk item yang bentrok:',
-        ),
+        title: Text(strings.conflictDialogTitle),
+        content: Text(strings.conflictDialogBody(conflictNames.length, preview)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Batal'),
+            child: Text(strings.cancel),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, ConflictStrategy.skip),
-            child: const Text('Lewati'),
+            child: Text(strings.conflictSkip),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, ConflictStrategy.overwrite),
-            child: const Text('Timpa'),
+            child: Text(strings.conflictOverwrite),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, ConflictStrategy.renameAuto),
-            child: const Text('Ganti Nama Otomatis'),
+            child: Text(strings.conflictRenameAuto),
           ),
         ],
       ),
@@ -642,7 +666,7 @@ class ExplorerScreen extends ConsumerWidget {
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Gagal mengirim file: $e')),
+          SnackBar(content: Text(AppStrings.of(context).sendFileFailed(e.toString()))),
         );
       }
     }
@@ -716,14 +740,15 @@ class ExplorerScreen extends ConsumerWidget {
       final canInstall = await nativeBridge.canInstallPackages();
       if (!canInstall) {
         if (!context.mounted) return;
+        final strings = AppStrings.of(context);
         final proceed = await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
-            title: const Text('Izin diperlukan'),
-            content: const Text('DalX butuh izin install app dari sumber tidak dikenal.'),
+            title: Text(strings.installPermissionTitle),
+            content: Text(strings.installPermissionBody),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Batal')),
-              TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Buka Settings')),
+              TextButton(onPressed: () => Navigator.pop(context, false), child: Text(strings.cancel)),
+              TextButton(onPressed: () => Navigator.pop(context, true), child: Text(strings.openSettingsButton)),
             ],
           ),
         );
@@ -746,6 +771,7 @@ class ExplorerScreen extends ConsumerWidget {
   }
 
   Widget _buildRestrictedNotice(BuildContext context) {
+    final strings = AppStrings.of(context);
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
@@ -754,16 +780,14 @@ class ExplorerScreen extends ConsumerWidget {
           children: [
             Icon(Icons.lock_outline, size: 48, color: Colors.grey.shade400),
             const SizedBox(height: 16),
-            const Text(
-              'Isi folder ini dibatasi sistem Android',
-              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+            Text(
+              strings.restrictedFolderTitle,
+              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 8),
             Text(
-              'Sejak Android 11, tidak ada aplikasi (termasuk file '
-              'manager lain) yang bisa membuka isi folder ini tanpa '
-              'akses root. Ini bukan masalah pada DalX.',
+              strings.restrictedFolderBody,
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600, height: 1.4),
             ),
@@ -785,13 +809,13 @@ class ExplorerScreen extends ConsumerWidget {
       return const Center(child: CircularProgressIndicator(color: dalxAccent));
     }
     if (state.errorMessage != null) {
-      return Center(child: Text('Terjadi kesalahan: ${state.errorMessage}'));
+      return Center(child: Text(AppStrings.of(context).errorOccurred(state.errorMessage!)));
     }
     if (state.items.isEmpty) {
       if (_isRestrictedAndroidFolder(state.currentPath)) {
         return _buildRestrictedNotice(context);
       }
-      return const Center(child: Text('Folder ini kosong'));
+      return Center(child: Text(AppStrings.of(context).emptyFolder));
     }
 
     // Non-pickMode: tap file (bukan folder) -> Image/Video Viewer
@@ -881,20 +905,21 @@ class _MoreMenuButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
     return PopupMenuButton<String>(
       onSelected: (value) => _handleSelected(context, value),
       itemBuilder: (context) => [
         // New Folder/New File cuma masuk akal saat mengelola file,
         // bukan saat memilih file untuk app lain.
         if (!pickMode) ...[
-          const PopupMenuItem(value: 'new_folder', child: _MenuRow(icon: Icons.create_new_folder_outlined, label: 'Folder Baru')),
-          const PopupMenuItem(value: 'new_file', child: _MenuRow(icon: Icons.note_add_outlined, label: 'File Baru')),
+          PopupMenuItem(value: 'new_folder', child: _MenuRow(icon: Icons.create_new_folder_outlined, label: strings.newFolder)),
+          PopupMenuItem(value: 'new_file', child: _MenuRow(icon: Icons.note_add_outlined, label: strings.newFile)),
         ],
         PopupMenuItem(
           value: 'toggle_hidden',
           child: _MenuRow(
             icon: Icons.visibility_off_outlined,
-            label: state.showHidden ? 'Sembunyikan Tersembunyi' : 'Tampilkan Tersembunyi',
+            label: state.showHidden ? strings.hideHiddenFiles : strings.showHiddenFiles,
             active: state.showHidden,
           ),
         ),
@@ -902,23 +927,24 @@ class _MoreMenuButton extends StatelessWidget {
           value: 'toggle_view',
           child: _MenuRow(
             icon: state.viewMode == ViewMode.grid ? Icons.grid_view : Icons.view_list,
-            label: state.viewMode == ViewMode.grid ? 'Tampilan List' : 'Tampilan Grid',
+            label: state.viewMode == ViewMode.grid ? strings.listView : strings.gridView,
           ),
         ),
         if (!pickMode)
-          const PopupMenuItem(value: 'sort', child: _MenuRow(icon: Icons.sort, label: 'Urutkan')),
+          PopupMenuItem(value: 'sort', child: _MenuRow(icon: Icons.sort, label: strings.sort)),
       ],
     );
   }
 
   Future<void> _handleSelected(BuildContext context, String value) async {
+    final strings = AppStrings.of(context);
     switch (value) {
       case 'new_folder':
-        final name = await _promptName(context, 'Folder Baru', 'Nama folder');
+        final name = await _promptName(context, strings.newFolder, strings.newFolderNameHint);
         if (name != null && name.isNotEmpty) await notifier.createFolder(name);
         break;
       case 'new_file':
-        final name = await _promptName(context, 'File Baru', 'Nama file (mis. catatan.txt)');
+        final name = await _promptName(context, strings.newFile, strings.newFileNameHint);
         if (name != null && name.isNotEmpty) await notifier.createFile(name);
         break;
       case 'toggle_hidden':
@@ -935,28 +961,30 @@ class _MoreMenuButton extends StatelessWidget {
 
   Future<String?> _promptName(BuildContext context, String title, String hint) {
     final controller = TextEditingController();
+    final strings = AppStrings.of(context);
     return showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(title),
         content: TextField(controller: controller, autofocus: true, decoration: InputDecoration(hintText: hint)),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Batal')),
-          TextButton(onPressed: () => Navigator.pop(context, controller.text.trim()), child: const Text('Buat')),
+          TextButton(onPressed: () => Navigator.pop(context), child: Text(strings.cancel)),
+          TextButton(onPressed: () => Navigator.pop(context, controller.text.trim()), child: Text(strings.create)),
         ],
       ),
     );
   }
 
   void _showSortMenu(BuildContext context) {
+    final strings = AppStrings.of(context);
     showModalBottomSheet(
       context: context,
       builder: (context) => Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          ListTile(title: const Text('Nama'), onTap: () { notifier.setSortMode(SortMode.name); Navigator.pop(context); }),
-          ListTile(title: const Text('Tanggal'), onTap: () { notifier.setSortMode(SortMode.date); Navigator.pop(context); }),
-          ListTile(title: const Text('Ukuran'), onTap: () { notifier.setSortMode(SortMode.size); Navigator.pop(context); }),
+          ListTile(title: Text(strings.sortByName), onTap: () { notifier.setSortMode(SortMode.name); Navigator.pop(context); }),
+          ListTile(title: Text(strings.sortByDate), onTap: () { notifier.setSortMode(SortMode.date); Navigator.pop(context); }),
+          ListTile(title: Text(strings.sortBySize), onTap: () { notifier.setSortMode(SortMode.size); Navigator.pop(context); }),
         ],
       ),
     );
@@ -1053,7 +1081,7 @@ class _FileSearchDelegate extends SearchDelegate<void> {
 
   Widget _buildList(BuildContext context) {
     final results = items.where((i) => i.name.toLowerCase().contains(query.toLowerCase())).toList();
-    if (results.isEmpty) return const Center(child: Text('Tidak ada hasil'));
+    if (results.isEmpty) return Center(child: Text(AppStrings.of(context).noResults));
     return ListView.builder(
       itemCount: results.length,
       itemBuilder: (context, index) {

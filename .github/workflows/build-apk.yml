@@ -77,4 +77,4 @@ jobs:
         with:
           name: dalx-release-${{ github.run_number }}
           path: build/app/outputs/flutter-apk/app-release.apk
-          retention-days: 30
+          retention-days: 3

@@ -7,6 +7,7 @@
 
 import 'dart:io';
 import 'package:flutter/material.dart';
+import '../../core/localization/app_strings.dart';
 import '../../core/models/file_item.dart';
 
 const _dalxAccent = Color(0xFF0A84FF);
@@ -32,6 +33,7 @@ class _FileInfoContent extends StatelessWidget {
     return FutureBuilder<_ExtraInfo>(
       future: _loadExtraInfo(item),
       builder: (context, snapshot) {
+        final strings = AppStrings.of(context);
         return Padding(
           padding: const EdgeInsets.fromLTRB(20, 10, 20, 24),
           child: Column(
@@ -74,7 +76,7 @@ class _FileInfoContent extends StatelessWidget {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis),
                         Text(
-                          item.isFolder ? 'Folder' : (item.extension.isEmpty ? 'File' : item.extension.toUpperCase()),
+                          item.isFolder ? strings.folder : (item.extension.isEmpty ? strings.file : item.extension.toUpperCase()),
                           style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
                         ),
                       ],
@@ -84,14 +86,14 @@ class _FileInfoContent extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 16),
-              _InfoRow(icon: Icons.folder_outlined, label: 'Lokasi', value: _parentPath(item.path)),
+              _InfoRow(icon: Icons.folder_outlined, label: strings.infoLocation, value: _parentPath(item.path)),
               if (!item.isFolder)
-                _InfoRow(icon: Icons.data_usage_outlined, label: 'Ukuran', value: _formatSize(item.sizeBytes)),
-              _InfoRow(icon: Icons.calendar_today_outlined, label: 'Diubah', value: _formatDate(item.modifiedAt)),
+                _InfoRow(icon: Icons.data_usage_outlined, label: strings.infoSize, value: _formatSize(item.sizeBytes)),
+              _InfoRow(icon: Icons.calendar_today_outlined, label: strings.infoModified, value: _formatDate(strings, item.modifiedAt)),
               if (!item.isFolder)
-                _InfoRow(icon: Icons.info_outline, label: 'Tipe MIME', value: _mimeType(item.extension)),
+                _InfoRow(icon: Icons.info_outline, label: strings.infoMimeType, value: _mimeType(item.extension)),
               if (snapshot.hasData)
-                _InfoRow(icon: Icons.shield_outlined, label: 'Izin', value: snapshot.data!.permissions),
+                _InfoRow(icon: Icons.shield_outlined, label: strings.infoPermissions, value: snapshot.data!.permissions),
             ],
           ),
         );
@@ -114,11 +116,8 @@ class _FileInfoContent extends StatelessWidget {
     return idx <= 0 ? '/' : path.substring(0, idx);
   }
 
-  String _formatDate(DateTime date) {
-    const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun',
-      'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des',
-    ];
+  String _formatDate(AppStrings strings, DateTime date) {
+    final months = strings.monthAbbreviations;
     final hh = date.hour.toString().padLeft(2, '0');
     final mm = date.minute.toString().padLeft(2, '0');
     return '${date.day} ${months[date.month - 1]} ${date.year}, $hh:$mm';
