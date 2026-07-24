@@ -83,8 +83,36 @@ android {
             // Sebelum itu disiapkan, fallback ke debug keys supaya
             // `flutter build apk` tetap jalan dari Termux.
             signingConfig hasReleaseSigning ? signingConfigs.release : signingConfigs.debug
+
+            // Rampingkan APK: R8 (minify kode Kotlin/Java + strip kode
+            // nggak kepake) + shrink resource nggak kepake. CATATAN
+            // PENTING: ini TIDAK memangkas kode Dart/Flutter engine sama
+            // sekali (itu udah dikompres lewat AOT compile + snapshot
+            // Flutter sendiri, di luar jangkauan R8) — yang dipangkas
+            // cuma lapisan native Kotlin/Java (MainActivity, NativeBridge,
+            // dan library Android dari semua plugin: video_player,
+            // flutter_pdfview, share_plus, dst). Aman buat performa
+            // selama proguard-rules.pro sudah nge-cover semua yang perlu
+            // di-keep — WAJIB dites end-to-end (buka file, copy/paste,
+            // code editor, xlsx, pdf, video, dll) di APK release hasil
+            // build ini sebelum dianggap final, karena R8 salah strip
+            // baru ketauan runtime, bukan pas compile.
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
+
+    // CATATAN split-per-ABI: SENGAJA TIDAK dikonfigurasi manual lewat
+    // `splits { abi {...} }` di sini — Flutter Gradle Plugin versi
+    // baru sudah otomatis mengatur abiFilters sendiri, dan konfigurasi
+    // manual di file ini KONFLIK dengannya (build gagal dengan error
+    // "The value for this property cannot be changed any further").
+    // Cara resmi & aman: tambahkan flag `--split-per-abi` ke command
+    // `flutter build apk` di workflow GitHub Actions — itu otomatis
+    // menghasilkan app-armeabi-v7a-release.apk, app-arm64-v8a-release.apk,
+    // app-x86_64-release.apk terpisah tanpa perlu apa pun diubah di
+    // file ini. Lihat catatan di build-apk.yml.
 }
 
 flutter {
