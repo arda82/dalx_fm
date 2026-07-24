@@ -24,7 +24,7 @@ import '../../core/events/event_catalog.dart';
 import '../../core/models/file_item.dart';
 import '../../core/native_bridge/native_bridge.dart';
 
-enum SortMode { name, date, size }
+enum SortMode { name, dateNewest, dateOldest, size }
 
 class FileEngine {
   final DalXEventBus _eventBus;
@@ -296,8 +296,10 @@ class FileEngine {
       switch (sortMode) {
         case SortMode.name:
           return a.name.toLowerCase().compareTo(b.name.toLowerCase());
-        case SortMode.date:
+        case SortMode.dateNewest:
           return b.modifiedAt.compareTo(a.modifiedAt); // terbaru dulu
+        case SortMode.dateOldest:
+          return a.modifiedAt.compareTo(b.modifiedAt); // terlama dulu
         case SortMode.size:
           return b.sizeBytes.compareTo(a.sizeBytes); // terbesar dulu
       }

@@ -852,10 +852,12 @@ class ExplorerScreen extends ConsumerWidget {
         color: dalxAccent,
         onRefresh: notifier.refresh,
         child: GridView.builder(
-          padding: const EdgeInsets.all(8),
+          padding: const EdgeInsets.all(6),
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 3,
-            childAspectRatio: 0.85,
+            crossAxisCount: 5,
+            childAspectRatio: 0.78,
+            mainAxisSpacing: 4,
+            crossAxisSpacing: 2,
           ),
           itemCount: state.items.length,
           itemBuilder: (context, index) {
@@ -977,14 +979,32 @@ class _MoreMenuButton extends StatelessWidget {
 
   void _showSortMenu(BuildContext context) {
     final strings = AppStrings.of(context);
+    final currentSort = state.sortMode;
     showModalBottomSheet(
       context: context,
       builder: (context) => Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          ListTile(title: Text(strings.sortByName), onTap: () { notifier.setSortMode(SortMode.name); Navigator.pop(context); }),
-          ListTile(title: Text(strings.sortByDate), onTap: () { notifier.setSortMode(SortMode.date); Navigator.pop(context); }),
-          ListTile(title: Text(strings.sortBySize), onTap: () { notifier.setSortMode(SortMode.size); Navigator.pop(context); }),
+          ListTile(
+            title: Text(strings.sortByName),
+            trailing: currentSort == SortMode.name ? const Icon(Icons.check, color: dalxAccent) : null,
+            onTap: () { notifier.setSortMode(SortMode.name); Navigator.pop(context); },
+          ),
+          ListTile(
+            title: Text(strings.sortByDateNewest),
+            trailing: currentSort == SortMode.dateNewest ? const Icon(Icons.check, color: dalxAccent) : null,
+            onTap: () { notifier.setSortMode(SortMode.dateNewest); Navigator.pop(context); },
+          ),
+          ListTile(
+            title: Text(strings.sortByDateOldest),
+            trailing: currentSort == SortMode.dateOldest ? const Icon(Icons.check, color: dalxAccent) : null,
+            onTap: () { notifier.setSortMode(SortMode.dateOldest); Navigator.pop(context); },
+          ),
+          ListTile(
+            title: Text(strings.sortBySize),
+            trailing: currentSort == SortMode.size ? const Icon(Icons.check, color: dalxAccent) : null,
+            onTap: () { notifier.setSortMode(SortMode.size); Navigator.pop(context); },
+          ),
         ],
       ),
     );
@@ -1223,17 +1243,17 @@ class _FileGridTile extends StatelessWidget {
               children: [
                 Icon(
                   item.isFolder ? Icons.folder : _iconForExtension(item.extension),
-                  size: 40,
+                  size: 32,
                   color: item.isFolder ? dalxAccent : Colors.grey,
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 3),
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 2),
                   child: Text(
                     item.name,
-                    maxLines: 1,
+                    maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+                    style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, height: 1.15),
                     textAlign: TextAlign.center,
                   ),
                 ),
@@ -1241,11 +1261,11 @@ class _FileGridTile extends StatelessWidget {
             ),
             if (isSelectMode)
               Positioned(
-                top: 2,
-                right: 2,
+                top: 0,
+                right: 0,
                 child: Icon(
                   isSelected ? Icons.check_circle : Icons.circle_outlined,
-                  size: 16,
+                  size: 14,
                   color: isSelected ? dalxAccent : Colors.grey,
                 ),
               ),

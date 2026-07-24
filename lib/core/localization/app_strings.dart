@@ -219,6 +219,8 @@ class AppStrings {
   String get settingsLicense => _t('Lisensi', 'License');
   String get sortByName => _t('Nama', 'Name');
   String get sortByDate => _t('Tanggal', 'Date');
+  String get sortByDateNewest => _t('Tanggal (Baru ke Lama)', 'Date (Newest first)');
+  String get sortByDateOldest => _t('Tanggal (Lama ke Baru)', 'Date (Oldest first)');
   String get sortBySize => _t('Ukuran', 'Size');
 }
 

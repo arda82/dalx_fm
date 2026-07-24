@@ -117,7 +117,7 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
   static SortMode _sortModeFromString(String s) {
     switch (s) {
       case 'date':
-        return SortMode.date;
+        return SortMode.dateNewest;
       case 'size':
         return SortMode.size;
       default:
