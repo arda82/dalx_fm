@@ -139,9 +139,9 @@ class SettingsScreen extends ConsumerWidget {
   }
 
   void _showThemeSheet(BuildContext context, WidgetRef ref, AppStrings s, ThemeMode current) {
-    showModalBottomSheet(
+    showDialog(
       context: context,
-      builder: (context) => SafeArea(
+      builder: (context) => Dialog(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -176,9 +176,9 @@ class SettingsScreen extends ConsumerWidget {
   }
 
   void _showLanguageSheet(BuildContext context, WidgetRef ref, AppStrings s, AppLocale current) {
-    showModalBottomSheet(
+    showDialog(
       context: context,
-      builder: (context) => SafeArea(
+      builder: (context) => Dialog(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -205,9 +205,9 @@ class SettingsScreen extends ConsumerWidget {
   }
 
   void _showDefaultViewSheet(BuildContext context, WidgetRef ref, AppStrings s, String current) {
-    showModalBottomSheet(
+    showDialog(
       context: context,
-      builder: (context) => SafeArea(
+      builder: (context) => Dialog(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -234,9 +234,9 @@ class SettingsScreen extends ConsumerWidget {
   }
 
   void _showDefaultSortSheet(BuildContext context, WidgetRef ref, AppStrings s, String current) {
-    showModalBottomSheet(
+    showDialog(
       context: context,
-      builder: (context) => SafeArea(
+      builder: (context) => Dialog(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -271,9 +271,9 @@ class SettingsScreen extends ConsumerWidget {
   }
 
   void _showFontSizeSheet(BuildContext context, WidgetRef ref, AppStrings s, double current) {
-    showModalBottomSheet(
+    showDialog(
       context: context,
-      builder: (context) => SafeArea(
+      builder: (context) => Dialog(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -317,9 +317,9 @@ class SettingsScreen extends ConsumerWidget {
 
   Future<void> _handleHomePathTap(BuildContext context, WidgetRef ref, String? currentHomePath) async {
     final strings = AppStrings.of(context);
-    final choice = await showModalBottomSheet<String>(
+    final choice = await showDialog<String>(
       context: context,
-      builder: (context) => SafeArea(
+      builder: (context) => Dialog(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [

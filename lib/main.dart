@@ -16,6 +16,7 @@ import 'core/native_bridge/native_bridge.dart';
 import 'core/settings/app_settings.dart';
 import 'features/explorer_ui/explorer_screen.dart';
 import 'features/media_scanner/media_scanner_listener.dart';
+import 'features/storage_overview/storage_overview_screen.dart';
 
 void main() {
   FlutterError.onError = (details) {
@@ -60,11 +61,68 @@ class DalXApp extends ConsumerWidget {
 
   ThemeData _buildTheme(Brightness brightness) {
     const dalxAccent = Color(0xFF0A84FF);
+    final isDark = brightness == Brightness.dark;
+
+    // ColorScheme DITULIS MANUAL, bukan ColorScheme.fromSeed(). Alasan:
+    // fromSeed menghasilkan "tonal palette" ala Material 3 — banyak
+    // varian warna turunan dari aksen yang kontrasnya nanggung (surface
+    // container, surface tint, dst), bertentangan sama filosofi
+    // "Function First, Color Last" / monochrome-first DalX (satu aksen
+    // solid #0A84FF, sisanya abu-abu/hitam/putih tegas). Nilai di
+    // bawah dipilih biar kontras teks-vs-background jelas di kedua
+    // mode, bukan diserahkan ke algoritma tonal Material 3.
+    final colorScheme = isDark
+        ? const ColorScheme.dark(
+            primary: dalxAccent,
+            onPrimary: Colors.white,
+            secondary: dalxAccent,
+            onSecondary: Colors.white,
+            surface: Color(0xFF161616),
+            onSurface: Color(0xFFF2F2F2),
+            surfaceContainerHighest: Color(0xFF232323),
+            onSurfaceVariant: Color(0xFFC7C7C7),
+            outline: Color(0xFF3A3A3A),
+            error: Color(0xFFFF6B6B),
+          )
+        : const ColorScheme.light(
+            primary: dalxAccent,
+            onPrimary: Colors.white,
+            secondary: dalxAccent,
+            onSecondary: Colors.white,
+            surface: Colors.white,
+            onSurface: Color(0xFF1A1A1A),
+            surfaceContainerHighest: Color(0xFFF0F0F0),
+            onSurfaceVariant: Color(0xFF55555A),
+            outline: Color(0xFFDADADA),
+            error: Color(0xFFD32F2F),
+          );
+
+    final baseTextTheme = ThemeData(brightness: brightness).textTheme;
+
     return ThemeData(
       brightness: brightness,
       useMaterial3: true,
-      colorScheme: ColorScheme.fromSeed(seedColor: dalxAccent, brightness: brightness),
+      colorScheme: colorScheme,
+      scaffoldBackgroundColor: isDark ? const Color(0xFF0F0F0F) : const Color(0xFFFAFAFA),
       fontFamily: 'Poppins',
+      // Font default Poppins Regular (w400) kelihatan tipis di layar
+      // kecil — dinaikkan ke w500 (Medium) buat body text & w600
+      // (SemiBold) buat judul, tanpa perlu ganti-ganti FontWeight
+      // manual di tiap Text() satu-satu di seluruh app.
+      textTheme: baseTextTheme.copyWith(
+        bodyLarge: baseTextTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w500),
+        bodyMedium: baseTextTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
+        bodySmall: baseTextTheme.bodySmall?.copyWith(fontWeight: FontWeight.w500),
+        titleLarge: baseTextTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
+        titleMedium: baseTextTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+        titleSmall: baseTextTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+        labelLarge: baseTextTheme.labelLarge?.copyWith(fontWeight: FontWeight.w600),
+      ),
+      switchTheme: SwitchThemeData(
+        thumbColor: WidgetStateProperty.resolveWith(
+          (states) => states.contains(WidgetState.selected) ? dalxAccent : null,
+        ),
+      ),
     );
   }
 }
@@ -196,15 +254,15 @@ class _PermissionGateState extends ConsumerState<_PermissionGate> {
 
 /// Baca intent awal (kalau DalX dibuka dari Open With/Share/Document
 /// Picker), lalu arahkan ke Explorer dengan konfigurasi yang sesuai.
-class _RouteAfterPermission extends StatefulWidget {
+class _RouteAfterPermission extends ConsumerStatefulWidget {
   final IntentBridge intentBridge;
   const _RouteAfterPermission({required this.intentBridge});
 
   @override
-  State<_RouteAfterPermission> createState() => _RouteAfterPermissionState();
+  ConsumerState<_RouteAfterPermission> createState() => _RouteAfterPermissionState();
 }
 
-class _RouteAfterPermissionState extends State<_RouteAfterPermission> {
+class _RouteAfterPermissionState extends ConsumerState<_RouteAfterPermission> {
   bool _isResolving = true;
   IncomingIntent? _intent;
 
@@ -236,8 +294,19 @@ class _RouteAfterPermissionState extends State<_RouteAfterPermission> {
     }
 
     final intent = _intent;
+
+    // Launch normal (user tap icon app, bukan lewat Share/Open With/
+    // Document Picker app lain) — pakai "Layar Awal" dari Settings.
+    // Sebelumnya baris ini hardcode ExplorerScreen(Internal Storage),
+    // beda sama default yang ditulis di Settings ("Storage Overview
+    // (default)") — user lihat langsung bedanya, sekarang disamakan:
+    // homePath null = StorageOverviewScreen, non-null = folder pilihan
+    // user.
     if (intent == null || intent.action == IncomingIntentAction.none) {
-      return const ExplorerScreen(rootPath: _internalStorageRoot);
+      final homePath = ref.watch(homePathProvider);
+      return homePath == null
+          ? const StorageOverviewScreen()
+          : ExplorerScreen(rootPath: homePath);
     }
 
     if (intent.action == IncomingIntentAction.getContent) {
@@ -252,6 +321,9 @@ class _RouteAfterPermissionState extends State<_RouteAfterPermission> {
       return ExplorerScreen(rootPath: parentPath);
     }
 
-    return const ExplorerScreen(rootPath: _internalStorageRoot);
+    final homePath = ref.watch(homePathProvider);
+    return homePath == null
+        ? const StorageOverviewScreen()
+        : ExplorerScreen(rootPath: homePath);
   }
 }
