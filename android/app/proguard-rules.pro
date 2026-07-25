@@ -86,3 +86,12 @@
 # (mis. deteksi format arsip otomatis lewat ArchiveStreamFactory).
 -keep class org.apache.commons.compress.** { *; }
 -dontwarn org.apache.commons.compress.**
+
+# PdfBox-Android (rotate PDF, Fase 8 Pilar #3) — di-keep konservatif,
+# banyak class internal PdfBox dimuat via reflection (font handling,
+# COS object model) yang R8 tidak bisa lacak lewat call graph biasa.
+-keep class com.tom_roush.pdfbox.** { *; }
+-keep class com.tom_roush.fontbox.** { *; }
+-dontwarn com.tom_roush.pdfbox.**
+-dontwarn com.tom_roush.fontbox.**
+-dontwarn com.tom_roush.harmony.**

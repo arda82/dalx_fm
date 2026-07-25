@@ -279,6 +279,7 @@ class ExplorerScreen extends ConsumerWidget {
     // file .zip. Compress selalu boleh selama ada item terpilih
     // (apa pun tipenya, termasuk campuran file & folder).
     final canExtract = singleSelectedItem != null && singleSelectedItem.isArchive;
+    final canRotatePdf = singleSelectedItem != null && singleSelectedItem.isPdf;
     final strings = AppStrings.of(context);
 
     return AppBar(
@@ -320,6 +321,8 @@ class ExplorerScreen extends ConsumerWidget {
             PopupMenuItem(value: 'compress', child: Text(strings.compress)),
             if (canExtract)
               PopupMenuItem(value: 'extract', child: Text(strings.extract)),
+            if (canRotatePdf)
+              const PopupMenuItem(value: 'rotate_pdf', child: Text('Rotate PDF')),
             PopupMenuItem(
               value: 'favorite',
               child: Text(allFavorited ? strings.removeFromFavorites : strings.addToFavorites),
@@ -387,7 +390,40 @@ class ExplorerScreen extends ConsumerWidget {
       if (state.selectedPaths.length != 1) return;
       final zipPath = state.selectedPaths.first;
       await _handleExtract(context, ref, zipPath);
+    } else if (value == 'rotate_pdf') {
+      if (state.selectedPaths.length != 1) return;
+      final pdfPath = state.selectedPaths.first;
+      final degrees = await _showRotateAngleDialog(context);
+      if (degrees == null) return;
+      final notifier = ref.read(explorerProvider(rootPath).notifier);
+      await notifier.rotatePdf(pdfPath, degrees);
     }
+  }
+
+  // ---------------- Fase 8 Pilar #3: Edit PDF (Rotate) ----------------
+
+  /// Return sudut rotasi (90/180/-90) atau null kalau dibatalkan.
+  Future<int?> _showRotateAngleDialog(BuildContext context) {
+    return showDialog<int>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('Rotate PDF'),
+        children: [
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(context, 90),
+            child: const Row(children: [Icon(Icons.rotate_right), SizedBox(width: 12), Text('Putar 90° searah jarum jam')]),
+          ),
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(context, -90),
+            child: const Row(children: [Icon(Icons.rotate_left), SizedBox(width: 12), Text('Putar 90° berlawanan jarum jam')]),
+          ),
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(context, 180),
+            child: const Row(children: [Icon(Icons.flip_camera_android), SizedBox(width: 12), Text('Putar 180°')]),
+          ),
+        ],
+      ),
+    );
   }
 
   // ---------------- Fase 5 & Fase 8 Pilar #2: Archive (Compress/Extract) ----------------

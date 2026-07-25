@@ -5,7 +5,7 @@
 // ARCHITECTURE.md bagian 7), supaya UI tidak nge-block dan user bisa
 // pause/resume/cancel.
 
-enum TaskType { copy, move, delete, compress, extract }
+enum TaskType { copy, move, delete, compress, extract, rotatePdf }
 
 enum TaskStatus { queued, running, paused, completed, failed, cancelled }
 
@@ -75,6 +75,8 @@ class DalXTask {
         return 'Mengompres';
       case TaskType.extract:
         return 'Mengekstrak';
+      case TaskType.rotatePdf:
+        return 'Memutar PDF';
     }
   }
 

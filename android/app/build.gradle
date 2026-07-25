@@ -136,4 +136,13 @@ dependencies {
     // lisensi/patent seputar algoritma unrar asli). junrar: pure
     // Java, LGPL, fork aktif dari implementasi unrar lama.
     implementation 'com.github.junrar:junrar:7.5.5'
+
+    // Fase 8 Pilar #3: Edit PDF (rotate halaman). PdfBox-Android
+    // (port Apache PDFBox buat Android, maintained TomRoush) —
+    // Apache License 2.0, dipilih SETELAH sempat coba
+    // syncfusion_flutter_pdf (dibatalkan, proses Community License-
+    // nya berbelit). Manipulasi struktur PDF asli (cuma ubah
+    // dictionary /Rotate per halaman), BUKAN render ulang jadi
+    // gambar — teks tetap tajam & searchable.
+    implementation 'com.tom-roush:pdfbox-android:2.0.27.0'
 }

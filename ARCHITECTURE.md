@@ -6,8 +6,10 @@ sub-fase baru atau lupa alasan di balik sebuah keputusan desain.
 > **Status keseluruhan (per update ini):** Sub-Fase 0a, 0b, dan Fase
 > 1–7 **SELESAI & TERUJI**. Perbaikan pra-Fase 8 (Thumbnail
 > Generation, Storage Fix, Grid View tuning — lihat bagian 7.1)
-> **SELESAI**. Fase 8 **DIMULAI**, pilar #1 (Preview PPT) sedang
-> dikerjakan.
+> **SELESAI**. Fase 8: Pilar #1 (Preview PPT) & Pilar #2 (Compress
+> Native, + Task Progress Banner) **SELESAI** — lihat bagian 7.2.
+> Pilar #3 (Edit PDF) berikutnya. Fase 9 (Database Viewer) baru
+> placeholder ide, belum dibahas scope-nya — lihat bagian 7.3.
 
 ## 1. Gambaran Umum
 
@@ -63,21 +65,27 @@ lib/
     │                                thumbnail_tile.dart (lihat 7.1)
     ├── storage_overview/            ← "Layar Awal" default, kartu
     │                                Internal/SD/USB + RAM real-time
-    ├── task_queue/                  ← DalXTask model, TaskType, ConflictStrategy
+    ├── task_queue/                  ← DalXTask model, TaskType, ConflictStrategy,
+    │                                task_progress_banner.dart (lihat 7.2)
     ├── favorites/                    ← favorites_service.dart (persist
     │                                SharedPreferences), favorites_screen.dart
     ├── settings/                     ← settings_screen.dart
     ├── media_viewer/                  ← ImageViewerScreen, VideoViewerScreen
     ├── code_editor/                   ← code_editor_screen.dart (re_editor),
     │                                language_detector.dart
-    ├── archive/                       ← compress/extract ZIP (task_queue
-    │                                yang eksekusi, lewat package archive)
+    ├── archive/                       ← compress/extract ZIP+tar/tar.gz (Dart,
+    │                                task_queue yang eksekusi) + 7z/RAR (native,
+    │                                lihat 7.2) — SEMUA lewat task_queue.dart,
+    │                                bukan folder archive/ terpisah secara fisik
     ├── doc_viewer/                     ← pdf_viewer_screen.dart, xlsx_editor_screen.dart
+    ├── ppt_viewer/                     ← pptx_parser.dart, ppt_viewer_screen.dart
+    │                                (Fase 8 Pilar #1, SELESAI — lihat 7.2)
     │
-    │   ─── BELUM DIIMPLEMENTASI (Fase 8, lihat bagian 7) ───
-    ├── ppt_viewer/                     (rencana: preview .pptx)
-    ├── pdf_editor/                     (rencana: rotate/split/merge/reorder)
-    └── (compress native masuk ke archive/ yang sudah ada, bukan folder baru)
+    │   ─── BELUM DIIMPLEMENTASI ───
+    ├── pdf_editor/                     (rencana: rotate/split/merge/reorder,
+    │                                Fase 8 Pilar #3, lihat bagian 7.2)
+    └── db_viewer/                      (rencana: Fase 9, lihat bagian 7.3 —
+                                        ide awal, scope belum dibahas)
 ```
 
 ## 3. Aturan Komunikasi Antar Modul
@@ -309,37 +317,68 @@ langsung dengan CX File Manager lewat screenshot)**
 
 ## 7.2 Roadmap Fase 8 — Native Power-up
 
-**Status: 🔧 DIMULAI** — scope dikunci penuh (hasil diskusi dengan
-Damar), pilar #1 (Preview PPT) sedang dikerjakan.
+**Status: 🔧 SEDANG BERJALAN** — Pilar #1 & #2 **SELESAI**, Pilar #3
+(Edit PDF) berikutnya.
 
 Urutan pengerjaan (prioritas Damar):
 
-1. **Preview PPT**
+1. **Preview PPT** ✅ SELESAI
    Buka `.pptx`, render tiap slide, swipe next/prev. **Preview doang
-   — tidak ada edit** sama sekali di iterasi ini. Fondasi dari nol
-   (belum ada modul terkait di project). Kendala utama: belum ada
-   package Flutter yang matang untuk parsing `.pptx` (format ZIP+XML)
-   — kemungkinan besar perlu parsing XML manual, resiko lebih tinggi
-   dari yang kelihatan sekilas.
+   — tidak ada edit** sama sekali. `features/ppt_viewer/`:
+   `pptx_parser.dart` (parsing XML manual — belum ada package Flutter
+   matang untuk `.pptx`, resolve urutan slide via `presentation.xml`
+   + `.rels`, extract teks & gambar per shape dengan posisi relatif),
+   `ppt_viewer_screen.dart` (`PageView`, render via `Stack`+
+   `Positioned`+`LayoutBuilder`, parsing dijalankan lewat `compute()`
+   supaya tidak blocking UI). Package baru: `xml: ^6.5.0`. Batasan
+   disadari: chart/table/SmartArt/animasi tidak didukung, styling
+   teks diabaikan, shape placeholder (posisi diwarisi Layout/Master)
+   dilewati.
 
-2. **Compress native**
-   - Approach: **Apache Commons Compress + XZ Java**, lewat JNI/
-     Kotlin via `NativeBridge` (pola sama seperti fitur native lain
-     yang sudah ada) — **BUKAN** libarchive/FFI, supaya tidak perlu
-     cross-compile native `.so` per-ABI dan tetap ringan di CI &
-     ukuran APK.
-   - Compress (bikin arsip baru): **ZIP + 7z**.
-   - Extract (buka arsip orang lain): **ZIP + 7z + RAR + tar/tar.gz**
-     (RAR extract-nya butuh library Kotlin pure-Java terpisah, belum
-     dipilih — RAR encoder proprietary sehingga compress-ke-RAR
-     TIDAK masuk scope, sesuai lazimnya file manager lain).
-   - Level kompresi 7z: **satu level default (normal)**, tidak ada
-     opsi atur level di iterasi ini — konsisten dengan compress ZIP
-     yang sudah ada sekarang.
-   - Task type baru: kemungkinan `TaskType.compressNative` /
-     eksekusi tetap lewat Task Queue yang sudah ada, bukan jalur baru.
+2. **Compress native** ✅ SELESAI (scope direvisi saat implementasi)
+   - Approach: **Apache Commons Compress + XZ Java** (7z) + **junrar**
+     (RAR, di-hosting JitPack — bukan Commons Compress, yang memang
+     tidak pernah support RAR karena lisensi/patent), lewat JNI/
+     Kotlin via `NativeBridge` — bukan libarchive/FFI.
+   - **Revisi scope dari rencana awal**: TERNYATA tar/tar.gz TIDAK
+     perlu native — `package:archive` (Dart, sudah dependency sejak
+     Fase 5) sudah cukup (`TarDecoder`+`GZipDecoder`). Jadi native
+     HANYA dipakai untuk **7z (compress+extract)** dan **RAR
+     (extract doang)** — lebih kecil dari rencana awal, sejalan
+     filosofi "ringan".
+   - Compress (bikin arsip baru): **ZIP (Dart, tidak berubah) + 7z
+     (native, baru)**. UI: `SegmentedButton` ZIP/7Z di dialog Compress.
+   - Extract: **ZIP (Dart) + 7z (native) + RAR (native) + tar/tar.gz
+     (Dart)** — auto-detect dari ekstensi file, tidak perlu pilihan
+     manual user.
+   - Level kompresi 7z: satu level default, tidak ada opsi atur.
+   - Progress native dilaporkan via `EventChannel` baru
+     `"com.dalx.app/archive_stream"` (bukan return value method call)
+     — supaya real-time selama proses jalan, bukan lompat 0%->100%.
+   - **Batasan disadari**: cancel/pause **TIDAK didukung** untuk 3
+     operasi native (compress 7z, extract 7z, extract RAR) — loop-nya
+     jalan di Kotlin, bukan Dart, jadi `_cancelFlags`/`_pauseFlags`
+     Task Queue tidak ke-cek di situ. ZIP & tar/tar.gz (Dart) tetap
+     bisa cancel/pause normal.
+   - `TaskType`/`DalXTask` model **TIDAK berubah** — format archive
+     cukup dibaca dari ekstensi file (destinationPath/sourcePaths),
+     tidak perlu field baru.
+   - Dependency baru: `android/app/build.gradle` (commons-compress,
+     xz, junrar), `android/build.gradle` (repo JitPack buat junrar),
+     `proguard-rules.pro` (dontwarn slf4j/brotli/zstd, keep
+     commons-compress & junrar).
 
-3. **Edit PDF**
+   **Tambahan di luar rencana awal — Task Progress Banner**: banner
+   mengambang (`features/task_queue/task_progress_banner.dart`)
+   dipasang lewat `MaterialApp.builder` di `main.dart` — muncul di
+   layar MANA PUN selagi ada task `isActive`, non-blocking (user
+   tetap bisa browsing sambil proses jalan). Tombol aksi beda
+   tergantung task: Copy/Move/Delete/Compress-ZIP/Extract-ZIP/
+   Extract-tar → "Batalkan" (beneran cancel); Compress-7z/Extract-7z/
+   Extract-RAR → "Sembunyikan" (banner hilang, proses TETAP lanjut —
+   jujur soal batasan cancel di atas, tidak menyesatkan user).
+
+3. **Edit PDF** — BERIKUTNYA
    Scope: **Rotate / Split / Merge / Reorder halaman** — manipulasi
    struktur halaman saja. **Tidak termasuk** edit teks isi PDF atau
    anotasi (highlight/gambar) di iterasi ini.
@@ -358,6 +397,19 @@ Urutan pengerjaan (prioritas Damar):
    sudah di-root, dan native USB host API sebagai riset masa depan —
    keduanya secara sadar DITUNDA, bukan bagian dari scope Fase 8
    saat ini.)*
+
+## 7.3 Fase 9 — Database Viewer (placeholder, scope belum dibahas)
+
+Ide dari Damar: kemampuan baca (dan mungkin nanti tulis) file
+database dari Explorer — semacam DB Browser for SQLite versi ringan
+(buka `.db`/`.sqlite`, lihat skema, browse isi tabel, mungkin run
+query `SELECT`). SENGAJA dipisah dari Fase 8 ("Native Power-up")
+karena kemungkinan besar **tidak butuh native sama sekali** —
+`package:sqlite3` (binding Dart resmi ke SQLite engine) sudah matang,
+beda dari kasus PPT yang kepaksa parsing manual. Dikerjakan SETELAH
+Fase 8 tuntas (Pilar #3 & #4), scope detail (baca-only vs baca-tulis,
+run query bebas vs browse-only, dst) belum dibahas — catatan ini
+cuma placeholder supaya tidak lupa idenya.
 
 ## 8. Keputusan Teknis
 

@@ -17,6 +17,7 @@ import android.provider.OpenableColumns
 import android.provider.Settings
 import androidx.core.content.FileProvider
 import com.github.junrar.Junrar
+import com.tom_roush.pdfbox.pdmodel.PDDocument
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -122,6 +123,14 @@ class NativeBridge(private val activity: Activity) : MethodChannel.MethodCallHan
                         call.argument<String>("taskId")!!,
                         call.argument<String>("sourcePath")!!,
                         call.argument<String>("destinationDir")!!,
+                        result
+                    )
+                }
+                "rotatePdf" -> {
+                    rotatePdfAsync(
+                        call.argument<String>("sourcePath")!!,
+                        call.argument<String>("destinationPath")!!,
+                        (call.argument<Number>("degrees") ?: 90).toInt(),
                         result
                     )
                 }
@@ -483,6 +492,45 @@ class NativeBridge(private val activity: Activity) : MethodChannel.MethodCallHan
                 activity.runOnUiThread { result.error("EXTRACT_RAR_FAILED", e.message, null) }
             }
         }.start()
+    }
+
+    // ---------------- Edit PDF: Rotate (Fase 8 Pilar #3) ----------------
+    // PdfBox-Android — manipulasi struktur PDF asli (cuma ubah
+    // dictionary /Rotate per halaman), BUKAN render ulang jadi gambar,
+    // jadi teks tetap tajam & bisa di-search. Operasi ini RINGAN
+    // (tidak decode/encode ulang isi konten halaman), jadi TIDAK pakai
+    // progress granular kayak compress/extract 7z — cukup coarse
+    // (result callback doang, tanpa EventChannel).
+
+    private fun rotatePdfAsync(
+        sourcePath: String,
+        destinationPath: String,
+        degrees: Int,
+        result: MethodChannel.Result
+    ) {
+        Thread {
+            try {
+                rotatePdf(sourcePath, destinationPath, degrees)
+                activity.runOnUiThread { result.success(true) }
+            } catch (e: Exception) {
+                activity.runOnUiThread { result.error("ROTATE_PDF_FAILED", e.message, null) }
+            }
+        }.start()
+    }
+
+    private fun rotatePdf(sourcePath: String, destinationPath: String, degrees: Int) {
+        PDDocument.load(File(sourcePath)).use { document ->
+            for (page in document.pages) {
+                // Rotasi PDF itu KUMULATIF & harus kelipatan 90 (spec
+                // PDF) — tambahkan ke rotasi existing (kalau halaman
+                // sebelumnya sudah punya /Rotate dari sononya), bukan
+                // di-set absolut, supaya rotate berulang kali tetap
+                // konsisten hasilnya.
+                val newRotation = ((page.rotation + degrees) % 360 + 360) % 360
+                page.rotation = newRotation
+            }
+            document.save(destinationPath)
+        }
     }
 
     // ---------------- Intent Handler: resolusi intent masuk ----------------
