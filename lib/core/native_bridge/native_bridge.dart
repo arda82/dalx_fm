@@ -70,9 +70,18 @@ class NativeFileEntry {
   }
 }
 
+/// Satu event progress dari [NativeBridge.archiveProgress] — dikirim
+/// native selama compress7z/extract7z/extractRar berjalan.
+class ArchiveProgressEvent {
+  final String taskId;
+  final double progress; // 0.0 - 1.0
+  const ArchiveProgressEvent({required this.taskId, required this.progress});
+}
+
 class NativeBridge {
   static const _channel = MethodChannel('com.dalx.app/native_bridge');
   static const _storageEventChannel = EventChannel('com.dalx.app/storage_stream');
+  static const _archiveEventChannel = EventChannel('com.dalx.app/archive_stream');
 
   /// Buka file lewat app lain (Open With), mirip "Open With" di file
   /// manager pada umumnya. [mimeType] opsional, default '*/*'.
@@ -203,6 +212,80 @@ class NativeBridge {
     } on PlatformException {
       return null;
     }
+  }
+
+  // ---------------- Compress Native: 7z & RAR (Fase 8 Pilar #2) ----------------
+  // SENGAJA cuma 7z (compress+extract) & RAR (extract) — ZIP dan
+  // tar/tar.gz TETAP pure Dart via package:archive (lihat
+  // ARCHITECTURE.md bagian 7.2 Pilar #2, revisi scope), jadi TIDAK
+  // ada method compressZip/extractTar dsb di sini — itu sepenuhnya
+  // ditangani task_queue.dart tanpa lewat native_bridge sama sekali.
+  //
+  // Progress operasi ini TIDAK dibalikin lewat return value method di
+  // bawah (method-nya cuma nunggu sampai selesai/gagal) — progress
+  // real-time selama proses jalan didengarkan terpisah lewat
+  // [archiveProgress] (EventChannel), di-key per [taskId] biar Task
+  // Queue Dart tau progress ini punya task yang mana.
+
+  /// Compress [sourcePaths] (file/folder, direkursif kalau folder)
+  /// jadi satu file 7z di [destinationPath]. Melempar
+  /// [PlatformException] kalau gagal (source tidak ke-baca, disk
+  /// penuh, dll) — caller (task_queue.dart) yang tangani jadi
+  /// TaskStatus.failed.
+  Future<void> compress7z(
+    String taskId,
+    List<String> sourcePaths,
+    String destinationPath,
+  ) async {
+    await _channel.invokeMethod('compress7z', {
+      'taskId': taskId,
+      'sourcePaths': sourcePaths,
+      'destinationPath': destinationPath,
+    });
+  }
+
+  /// Extract file 7z di [sourcePath] ke folder [destinationDir].
+  Future<void> extract7z(
+    String taskId,
+    String sourcePath,
+    String destinationDir,
+  ) async {
+    await _channel.invokeMethod('extract7z', {
+      'taskId': taskId,
+      'sourcePath': sourcePath,
+      'destinationDir': destinationDir,
+    });
+  }
+
+  /// Extract file RAR di [sourcePath] ke folder [destinationDir].
+  /// Progress buat RAR CUMA 2 titik (0% mulai, 100% selesai) — bukan
+  /// per-file granular kayak 7z, trade-off yang disadari (lihat
+  /// catatan di NativeBridge.kt extractRarAsync).
+  Future<void> extractRar(
+    String taskId,
+    String sourcePath,
+    String destinationDir,
+  ) async {
+    await _channel.invokeMethod('extractRar', {
+      'taskId': taskId,
+      'sourcePath': sourcePath,
+      'destinationDir': destinationDir,
+    });
+  }
+
+  /// Stream progress real-time buat [compress7z]/[extract7z]/
+  /// [extractRar] yang lagi jalan. Dengarkan & filter berdasar
+  /// [ArchiveProgressEvent.taskId] yang cocok sama task yang sedang
+  /// ditunggu (Task Queue jalan sekuensial, tapi filter ini tetap
+  /// dijaga jaga-jaga ke depan kalau suatu saat ada paralel).
+  Stream<ArchiveProgressEvent> get archiveProgress {
+    return _archiveEventChannel.receiveBroadcastStream().map((event) {
+      final map = event as Map<dynamic, dynamic>;
+      return ArchiveProgressEvent(
+        taskId: map['taskId'] as String? ?? '',
+        progress: (map['progress'] as num?)?.toDouble() ?? 0.0,
+      );
+    });
   }
 
   /// Tebak MIME type dari ekstensi file, dipakai untuk [openWith] dan

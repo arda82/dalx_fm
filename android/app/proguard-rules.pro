@@ -57,3 +57,32 @@
 -keepclassmembers class **$WhenMappings {
     <fields>;
 }
+
+# ---------------- Commons Compress + XZ (7z) & junrar (RAR) — Fase 8 Pilar #2 ----------------
+# Commons Compress punya referensi OPSIONAL ke beberapa logging/codec
+# library yang TIDAK kita include (kita nggak butuh logging framework
+# apa pun, DalX nggak pakai slf4j secara langsung) — kalau nggak
+# di-dontwarn, R8 anggap "missing class" dan build GAGAL walau
+# runtime-nya aman (Commons Compress punya fallback kalau library
+# opsional ini nggak ketemu di classpath).
+-dontwarn org.slf4j.**
+# Brotli & Zstd: codec kompresi opsional lain yang bisa direferensikan
+# Commons Compress tapi TIDAK kita pakai (DalX cuma butuh 7z/LZMA2,
+# sudah tercover xz:1.9). Ditambah preventif biar nggak perlu
+# bolak-balik build cuma buat nemuin missing class serupa satu-satu.
+-dontwarn org.brotli.dec.**
+-dontwarn com.github.luben.zstd.**
+
+# junrar (RAR extract) — dipanggil langsung (bukan lewat
+# MethodChannel/reflection kayak com.dalx.app.**), tapi tetap di-keep
+# konservatif sesuai filosofi file ini: beberapa versi junrar pakai
+# reflection internal buat deteksi multi-volume archive (.part1.rar,
+# dst) yang R8 nggak bisa lacak lewat call graph biasa.
+-keep class com.github.junrar.** { *; }
+-dontwarn com.github.junrar.**
+
+# Commons Compress sendiri: konservatif sama, di-keep utuh biar aman
+# dari method/field yang ke-strip salah gara-gara reflection internal
+# (mis. deteksi format arsip otomatis lewat ArchiveStreamFactory).
+-keep class org.apache.commons.compress.** { *; }
+-dontwarn org.apache.commons.compress.**
