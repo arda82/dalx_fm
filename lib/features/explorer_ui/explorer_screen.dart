@@ -69,6 +69,7 @@ import '../media_viewer/video_viewer_screen.dart';
 import '../ppt_viewer/ppt_viewer_screen.dart';
 import '../storage_overview/storage_overview_screen.dart';
 import '../task_queue/task.dart';
+import '../task_queue/task_queue.dart';
 import '../task_queue/task_queue_screen.dart';
 import 'app_drawer.dart';
 import 'explorer_state.dart';
@@ -379,9 +380,9 @@ class ExplorerScreen extends ConsumerWidget {
       final suggestedName = paths.length == 1
           ? paths.first.split('/').last
           : 'Archive';
-      final zipName = await _showCompressNameDialog(context, suggestedName);
-      if (zipName == null || zipName.trim().isEmpty) return;
-      await notifier.compressSelected(zipName.trim());
+      final result = await _showCompressNameDialog(context, suggestedName);
+      if (result == null || result.$1.trim().isEmpty) return;
+      await notifier.compressSelected(result.$1.trim(), format: result.$2);
     } else if (value == 'extract') {
       if (state.selectedPaths.length != 1) return;
       final zipPath = state.selectedPaths.first;
@@ -389,34 +390,66 @@ class ExplorerScreen extends ConsumerWidget {
     }
   }
 
-  // ---------------- Fase 5: Archive (Compress/Extract) ----------------
+  // ---------------- Fase 5 & Fase 8 Pilar #2: Archive (Compress/Extract) ----------------
 
-  Future<String?> _showCompressNameDialog(BuildContext context, String suggestedName) {
+  /// Return `(nama file, format)` atau null kalau dibatalkan. Pakai
+  /// Dart record (bukan bikin class kecil terpisah) — cuma dipakai
+  /// sekali di titik ini, class terpisah kelebihan buat kasus sesimpel
+  /// ini.
+  Future<(String, ArchiveFormat)?> _showCompressNameDialog(BuildContext context, String suggestedName) {
     final controller = TextEditingController(text: suggestedName);
     final strings = AppStrings.of(context);
-    return showDialog<String>(
+    var format = ArchiveFormat.zip;
+    return showDialog<(String, ArchiveFormat)>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(strings.compress),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: InputDecoration(
-            labelText: strings.compressDialogZipNameLabel,
-            suffixText: '.zip',
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: Text(strings.compress),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: controller,
+                autofocus: true,
+                decoration: InputDecoration(
+                  labelText: strings.compressDialogZipNameLabel,
+                  suffixText: format == ArchiveFormat.sevenZip ? '.7z' : '.zip',
+                ),
+              ),
+              const SizedBox(height: 12),
+              // Format selector — Fase 8 Pilar #2. ZIP tetap default
+              // (pure Dart, sudah ada sejak Fase 5); 7z jalan lewat
+              // native (Commons Compress).
+              SegmentedButton<ArchiveFormat>(
+                segments: const [
+                  ButtonSegment(value: ArchiveFormat.zip, label: Text('ZIP')),
+                  ButtonSegment(value: ArchiveFormat.sevenZip, label: Text('7Z')),
+                ],
+                selected: {format},
+                onSelectionChanged: (selection) => setState(() => format = selection.first),
+                style: ButtonStyle(
+                  foregroundColor: WidgetStateProperty.resolveWith(
+                    (states) => states.contains(WidgetState.selected) ? Colors.white : null,
+                  ),
+                  backgroundColor: WidgetStateProperty.resolveWith(
+                    (states) => states.contains(WidgetState.selected) ? dalxAccent : null,
+                  ),
+                ),
+              ),
+            ],
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(strings.cancel),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: dalxAccent),
+              onPressed: () => Navigator.pop(context, (controller.text, format)),
+              child: Text(strings.compress),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(strings.cancel),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: dalxAccent),
-            onPressed: () => Navigator.pop(context, controller.text),
-            child: Text(strings.compress),
-          ),
-        ],
       ),
     );
   }

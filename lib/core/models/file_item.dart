@@ -66,7 +66,11 @@ class FileItem {
   // menu titik-tiga. Cuma ZIP dulu (pure Dart via package archive) —
   // RAR/7z belum didukung, itu bagian Fase 8 (Native Power-up).
 
-  static const _archiveExts = {'zip'};
+  // Fase 8 Pilar #2: extract sekarang support lebih dari ZIP.
+  // Compress (bikin baru) TETAP cuma ZIP/7z — RAR sengaja tidak
+  // masuk sini karena bukan format yang bisa DIBUAT DalX (extract
+  // only, lihat ARCHITECTURE.md).
+  static const _archiveExts = {'zip', '7z', 'rar', 'tar', 'gz', 'tgz'};
 
   bool get isArchive => !isFolder && _archiveExts.contains(extension);
 

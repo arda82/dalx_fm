@@ -17,15 +17,42 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/events/event_bus.dart';
 import '../../core/events/event_catalog.dart';
+import '../../core/native_bridge/native_bridge.dart';
 import 'task.dart';
+
+/// Buang ekstensi arsip dari [fileName] apa pun formatnya (zip/7z/rar/
+/// tar/tar.gz/tgz) — dipakai buat nentuin nama sub-folder tujuan
+/// extract. Top-level (bukan method privat TaskQueue) supaya bisa
+/// dipakai juga dari explorer_state.dart (checkExtractConflict), yang
+/// perlu hitungan nama sama persis SEBELUM task dikirim ke TaskQueue.
+/// ".tar.gz"/".tgz" dicek DULUAN (ekstensi ganda) sebelum ekstensi
+/// tunggal biasa, supaya "arsip.tar.gz" jadi "arsip" bukan "arsip.tar".
+String stripArchiveExtension(String fileName) {
+  final lower = fileName.toLowerCase();
+  const doubleExts = ['.tar.gz'];
+  for (final ext in doubleExts) {
+    if (lower.endsWith(ext)) return fileName.substring(0, fileName.length - ext.length);
+  }
+  const singleExts = ['.zip', '.7z', '.rar', '.tar', '.tgz', '.gz'];
+  for (final ext in singleExts) {
+    if (lower.endsWith(ext)) return fileName.substring(0, fileName.length - ext.length);
+  }
+  return fileName;
+}
+
+/// Format buat MEMBUAT arsip baru (Compress). Extract sendiri auto-
+/// detect dari ekstensi sourceFile, tidak butuh enum ini — lihat
+/// [TaskQueue.extract].
+enum ArchiveFormat { zip, sevenZip }
 
 class TaskQueue extends StateNotifier<List<DalXTask>> {
   final DalXEventBus _eventBus;
+  final NativeBridge _nativeBridge;
   int _idCounter = 0;
   final Map<String, bool> _cancelFlags = {};
   final Map<String, bool> _pauseFlags = {};
 
-  TaskQueue(this._eventBus) : super([]);
+  TaskQueue(this._eventBus, this._nativeBridge) : super([]);
 
   String _newTaskId() => 'task_${_idCounter++}';
 
@@ -76,18 +103,26 @@ class TaskQueue extends StateNotifier<List<DalXTask>> {
     await _runCopyOrMove(task, isMove: true, strategy: strategy);
   }
 
-  /// Kompres [sourcePaths] jadi satu file ZIP di [destinationDir].
-  /// [zipFileName] nama yang diketik user di dialog (boleh tanpa
-  /// ".zip", ditambah otomatis). Kalau nama itu sudah dipakai di
-  /// folder tujuan, otomatis di-increment "(1)", "(2)", dst — TANPA
-  /// nanya user ulang (beda dari konflik Paste/Extract, karena ini
-  /// file baru yang memang lagi dibuat user sendiri).
+  /// Kompres [sourcePaths] jadi satu file arsip di [destinationDir].
+  /// [fileNameInput] nama yang diketik user di dialog (boleh tanpa
+  /// ekstensi, ditambah otomatis sesuai [format]). Kalau nama itu
+  /// sudah dipakai di folder tujuan, otomatis di-increment "(1)",
+  /// "(2)", dst — TANPA nanya user ulang (beda dari konflik
+  /// Paste/Extract, karena ini file baru yang memang lagi dibuat user
+  /// sendiri).
+  ///
+  /// [format] default ZIP (pure Dart, package:archive — sudah ada
+  /// sejak Fase 5). [ArchiveFormat.sevenZip] jalan lewat native
+  /// (Commons Compress, Fase 8 Pilar #2) — progress-nya datang dari
+  /// [NativeBridge.archiveProgress], BUKAN dihitung di sini.
   Future<void> compress(
     List<String> sourcePaths,
     String destinationDir,
-    String zipFileName,
-  ) async {
-    final fileName = zipFileName.toLowerCase().endsWith('.zip') ? zipFileName : '$zipFileName.zip';
+    String fileNameInput, {
+    ArchiveFormat format = ArchiveFormat.zip,
+  }) async {
+    final ext = format == ArchiveFormat.sevenZip ? '.7z' : '.zip';
+    final fileName = fileNameInput.toLowerCase().endsWith(ext) ? fileNameInput : '$fileNameInput$ext';
     final resolvedPath = await _resolveAvailableFilePath(destinationDir, fileName);
 
     final task = DalXTask(
@@ -97,23 +132,32 @@ class TaskQueue extends StateNotifier<List<DalXTask>> {
       destinationPath: resolvedPath,
     );
     _addTask(task);
-    await _runCompress(task);
+    if (format == ArchiveFormat.sevenZip) {
+      await _runCompress7zNative(task);
+    } else {
+      await _runCompress(task);
+    }
   }
 
-  /// Ekstrak isi [zipPath] ke sub-folder baru di [destinationDir],
-  /// nama sub-folder = nama file zip tanpa ".zip". [strategy]
+  /// Ekstrak isi [archivePath] ke sub-folder baru di [destinationDir],
+  /// nama sub-folder = nama file arsip tanpa ekstensinya. [strategy]
   /// menentukan perlakuan kalau nama sub-folder itu sudah dipakai di
   /// [destinationDir] (dipilih user lewat dialog konflik di
   /// explorer_screen — sama komponen dengan konflik Paste).
+  ///
+  /// Format DIDETEKSI OTOMATIS dari ekstensi [archivePath] — bukan
+  /// parameter terpisah, karena file yang mau di-extract sudah pasti
+  /// datang dengan ekstensinya sendiri (beda dari [compress] yang
+  /// filenya belum ada). ZIP & tar/tar.gz jalan pure Dart
+  /// (package:archive), 7z & RAR jalan lewat native (Fase 8 Pilar #2)
+  /// — progressnya dari [NativeBridge.archiveProgress].
   Future<void> extract(
-    String zipPath,
+    String archivePath,
     String destinationDir, {
     ConflictStrategy strategy = ConflictStrategy.renameAuto,
   }) async {
-    final zipName = zipPath.split(Platform.pathSeparator).last;
-    final baseName = zipName.toLowerCase().endsWith('.zip')
-        ? zipName.substring(0, zipName.length - 4)
-        : zipName;
+    final fileName = archivePath.split(Platform.pathSeparator).last;
+    final baseName = stripArchiveExtension(fileName);
     var destPath = '$destinationDir${Platform.pathSeparator}$baseName';
 
     final destExists = await Directory(destPath).exists() || await File(destPath).exists();
@@ -132,11 +176,23 @@ class TaskQueue extends StateNotifier<List<DalXTask>> {
     final task = DalXTask(
       id: _newTaskId(),
       type: TaskType.extract,
-      sourcePaths: [zipPath],
+      sourcePaths: [archivePath],
       destinationPath: destPath,
     );
     _addTask(task);
-    await _runExtract(task);
+
+    final lowerName = fileName.toLowerCase();
+    if (lowerName.endsWith('.7z')) {
+      await _runExtract7zNative(task);
+    } else if (lowerName.endsWith('.rar')) {
+      await _runExtractRarNative(task);
+    } else if (lowerName.endsWith('.tar.gz') || lowerName.endsWith('.tgz') || lowerName.endsWith('.tar')) {
+      await _runExtractTar(task, isGzipped: !lowerName.endsWith('.tar'));
+    } else {
+      // Default/fallback: ZIP (juga menangkap ekstensi tidak dikenal
+      // — daripada gagal total, coba perlakukan sebagai ZIP dulu).
+      await _runExtract(task);
+    }
   }
 
   void pause(String taskId) {
@@ -347,6 +403,149 @@ class TaskQueue extends StateNotifier<List<DalXTask>> {
     }
   }
 
+  // ---------------- Fase 8 Pilar #2: Compress Native (7z & RAR) ----------------
+  // CATATAN PENTING: cancel/pause TIDAK didukung untuk 3 method di
+  // bawah ini — beda dari _runCompress/_runExtract (ZIP) yang bisa
+  // cek _cancelFlags tiap iterasi karena loop-nya di Dart. Di sini
+  // loop-nya jalan di native Kotlin (lihat NativeBridge.kt), Dart
+  // cuma "nunggu" & dengerin progress lewat stream — request
+  // cancel/pause TIDAK akan berhenti di tengah proses native. Ini
+  // keterbatasan yang disadari (best-effort), bukan bug — konsisten
+  // sama semangat "sebisanya" yang sudah disepakati sebelumnya buat
+  // fitur native lain di Fase 8.
+
+  /// Dengerin [NativeBridge.archiveProgress] selama [nativeCall]
+  /// berjalan, update [DalXTask] & fire [TaskProgress] tiap event
+  /// masuk — dipakai bareng ke-3 method native compress/extract di
+  /// bawah biar nggak duplikasi listener setup.
+  Future<void> _runNativeArchiveOp(DalXTask task, Future<void> Function() nativeCall) async {
+    final subscription = _nativeBridge.archiveProgress.where((e) => e.taskId == task.id).listen((e) {
+      _updateTask(task.id, (t) => t.copyWith(progress: e.progress));
+      _eventBus.fire(TaskProgress(task.id, e.progress));
+    });
+    try {
+      await nativeCall();
+    } finally {
+      await subscription.cancel();
+    }
+  }
+
+  Future<void> _runCompress7zNative(DalXTask task) async {
+    _updateTask(task.id, (t) => t.copyWith(status: TaskStatus.running));
+    try {
+      await _runNativeArchiveOp(
+        task,
+        () => _nativeBridge.compress7z(task.id, task.sourcePaths, task.destinationPath!),
+      );
+      _updateTask(task.id, (t) => t.copyWith(status: TaskStatus.completed, progress: 1.0));
+      _eventBus.fire(FileCreated(task.destinationPath!, isFolder: false));
+      _eventBus.fire(TaskCompleted(task.id, success: true));
+    } catch (e) {
+      debugPrint('Task compress (7z) gagal: $e');
+      _updateTask(task.id, (t) => t.copyWith(status: TaskStatus.failed, errorMessage: e.toString()));
+      _eventBus.fire(TaskCompleted(task.id, success: false, errorMessage: e.toString()));
+    } finally {
+      _cancelFlags.remove(task.id);
+      _pauseFlags.remove(task.id);
+    }
+  }
+
+  Future<void> _runExtract7zNative(DalXTask task) async {
+    _updateTask(task.id, (t) => t.copyWith(status: TaskStatus.running));
+    try {
+      await _runNativeArchiveOp(
+        task,
+        () => _nativeBridge.extract7z(task.id, task.sourcePaths.first, task.destinationPath!),
+      );
+      _updateTask(task.id, (t) => t.copyWith(status: TaskStatus.completed, progress: 1.0));
+      _eventBus.fire(FileCreated(task.destinationPath!, isFolder: true));
+      _eventBus.fire(TaskCompleted(task.id, success: true));
+    } catch (e) {
+      debugPrint('Task extract (7z) gagal: $e');
+      _updateTask(task.id, (t) => t.copyWith(status: TaskStatus.failed, errorMessage: e.toString()));
+      _eventBus.fire(TaskCompleted(task.id, success: false, errorMessage: e.toString()));
+    } finally {
+      _cancelFlags.remove(task.id);
+      _pauseFlags.remove(task.id);
+    }
+  }
+
+  Future<void> _runExtractRarNative(DalXTask task) async {
+    _updateTask(task.id, (t) => t.copyWith(status: TaskStatus.running));
+    try {
+      await _runNativeArchiveOp(
+        task,
+        () => _nativeBridge.extractRar(task.id, task.sourcePaths.first, task.destinationPath!),
+      );
+      _updateTask(task.id, (t) => t.copyWith(status: TaskStatus.completed, progress: 1.0));
+      _eventBus.fire(FileCreated(task.destinationPath!, isFolder: true));
+      _eventBus.fire(TaskCompleted(task.id, success: true));
+    } catch (e) {
+      debugPrint('Task extract (RAR) gagal: $e');
+      _updateTask(task.id, (t) => t.copyWith(status: TaskStatus.failed, errorMessage: e.toString()));
+      _eventBus.fire(TaskCompleted(task.id, success: false, errorMessage: e.toString()));
+    } finally {
+      _cancelFlags.remove(task.id);
+      _pauseFlags.remove(task.id);
+    }
+  }
+
+  /// Extract tar/tar.gz — PURE DART (package:archive), BUKAN native.
+  /// archive package sudah cukup buat format ini (TarDecoder +
+  /// GZipDecoder), jadi tidak perlu Commons Compress sama sekali
+  /// (lihat ARCHITECTURE.md bagian 7.2 Pilar #2, revisi scope).
+  /// Progress dihitung di Dart sama seperti [_runExtract] (ZIP), bisa
+  /// di-cancel/pause normal (beda dari 3 method native di atas).
+  Future<void> _runExtractTar(DalXTask task, {required bool isGzipped}) async {
+    _updateTask(task.id, (t) => t.copyWith(status: TaskStatus.running));
+    try {
+      final path = task.sourcePaths.first;
+      final rawBytes = await File(path).readAsBytes();
+      final tarBytes = isGzipped ? GZipDecoder().decodeBytes(rawBytes) : rawBytes;
+      final archive = TarDecoder().decodeBytes(tarBytes);
+
+      final destDir = Directory(task.destinationPath!);
+      await destDir.create(recursive: true);
+
+      final total = archive.files.length;
+      for (var i = 0; i < total; i++) {
+        if (_cancelFlags[task.id] == true) break;
+        await _waitIfPaused(task.id);
+
+        final file = archive.files[i];
+        final outPath = '${destDir.path}${Platform.pathSeparator}${file.name}';
+
+        if (file.isFile) {
+          final outFile = File(outPath);
+          await outFile.create(recursive: true);
+          await outFile.writeAsBytes(file.content as List<int>);
+        } else {
+          await Directory(outPath).create(recursive: true);
+        }
+
+        final progress = (i + 1) / total;
+        _updateTask(task.id, (t) => t.copyWith(progress: progress));
+        _eventBus.fire(TaskProgress(task.id, progress));
+      }
+
+      if (_cancelFlags[task.id] == true) {
+        _eventBus.fire(TaskCompleted(task.id, success: false, errorMessage: 'Dibatalkan'));
+        return;
+      }
+
+      _updateTask(task.id, (t) => t.copyWith(status: TaskStatus.completed, progress: 1.0));
+      _eventBus.fire(FileCreated(task.destinationPath!, isFolder: true));
+      _eventBus.fire(TaskCompleted(task.id, success: true));
+    } catch (e) {
+      debugPrint('Task extract (tar) gagal: $e');
+      _updateTask(task.id, (t) => t.copyWith(status: TaskStatus.failed, errorMessage: e.toString()));
+      _eventBus.fire(TaskCompleted(task.id, success: false, errorMessage: e.toString()));
+    } finally {
+      _cancelFlags.remove(task.id);
+      _pauseFlags.remove(task.id);
+    }
+  }
+
   Future<void> _runExtract(DalXTask task) async {
     _updateTask(task.id, (t) => t.copyWith(status: TaskStatus.running));
 
@@ -450,5 +649,6 @@ class TaskQueue extends StateNotifier<List<DalXTask>> {
 
 final taskQueueProvider = StateNotifierProvider<TaskQueue, List<DalXTask>>((ref) {
   final eventBus = ref.watch(eventBusProvider);
-  return TaskQueue(eventBus);
+  final nativeBridge = ref.watch(nativeBridgeProvider);
+  return TaskQueue(eventBus, nativeBridge);
 });

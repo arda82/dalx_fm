@@ -321,41 +321,47 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
     }
   }
 
-  // ---------------- Fase 5: Archive (Compress/Extract) ----------------
+  // ---------------- Fase 5 & Fase 8 Pilar #2: Archive (Compress/Extract) ----------------
 
-  /// Kompres item yang sedang terpilih jadi satu file ZIP di folder
-  /// yang sedang dibuka. [zipFileName] dari input dialog user.
-  Future<void> compressSelected(String zipFileName) async {
+  /// Kompres item yang sedang terpilih jadi satu file arsip di folder
+  /// yang sedang dibuka. [fileNameInput] dari input dialog user.
+  /// [format] default ZIP; [ArchiveFormat.sevenZip] jalan lewat native
+  /// (Fase 8 Pilar #2) — lihat TaskQueue.compress.
+  Future<void> compressSelected(
+    String fileNameInput, {
+    ArchiveFormat format = ArchiveFormat.zip,
+  }) async {
     final destination = state.currentPath;
     final paths = state.selectedPaths.toList();
     if (destination == null || paths.isEmpty) return;
     state = state.copyWith(selectedPaths: {});
-    await _taskQueue.compress(paths, destination, zipFileName);
+    await _taskQueue.compress(paths, destination, fileNameInput, format: format);
   }
 
-  /// Cek apakah sub-folder hasil extract (nama = nama zip tanpa
-  /// ".zip") sudah ada di folder tujuan. Dipanggil dari
-  /// explorer_screen SEBELUM extractArchive, supaya bisa munculkan
-  /// dialog Lewati/Timpa/Ganti Nama Otomatis kalau memang bentrok.
-  Future<bool> checkExtractConflict(String zipPath, String destinationDir) async {
-    final zipName = zipPath.split(Platform.pathSeparator).last;
-    final baseName = zipName.toLowerCase().endsWith('.zip')
-        ? zipName.substring(0, zipName.length - 4)
-        : zipName;
+  /// Cek apakah sub-folder hasil extract (nama = nama arsip tanpa
+  /// ekstensinya, format apa pun — zip/7z/rar/tar/tar.gz) sudah ada
+  /// di folder tujuan. Dipanggil dari explorer_screen SEBELUM
+  /// extractArchive, supaya bisa munculkan dialog Lewati/Timpa/Ganti
+  /// Nama Otomatis kalau memang bentrok.
+  Future<bool> checkExtractConflict(String archivePath, String destinationDir) async {
+    final archiveName = archivePath.split(Platform.pathSeparator).last;
+    final baseName = stripArchiveExtension(archiveName);
     final destPath = '$destinationDir${Platform.pathSeparator}$baseName';
     return await Directory(destPath).exists() || await File(destPath).exists();
   }
 
-  /// Ekstrak [zipPath] ke [destinationDir] — [destinationDir] bisa
+  /// Ekstrak [archivePath] ke [destinationDir] — [destinationDir] bisa
   /// folder saat ini ("Di sini") atau folder hasil pilihan user lewat
-  /// folder picker ("Pilih").
+  /// folder picker ("Pilih"). Format archive auto-detect dari
+  /// ekstensi [archivePath] (lihat TaskQueue.extract) — tidak perlu
+  /// parameter tambahan di sini.
   Future<void> extractArchive(
-    String zipPath,
+    String archivePath,
     String destinationDir, {
     ConflictStrategy strategy = ConflictStrategy.renameAuto,
   }) async {
     state = state.copyWith(selectedPaths: {});
-    await _taskQueue.extract(zipPath, destinationDir, strategy: strategy);
+    await _taskQueue.extract(archivePath, destinationDir, strategy: strategy);
   }
 
   // ---------------- Hidden Files, Sort & View Mode ----------------
