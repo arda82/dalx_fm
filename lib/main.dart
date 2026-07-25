@@ -17,6 +17,7 @@ import 'core/settings/app_settings.dart';
 import 'features/explorer_ui/explorer_screen.dart';
 import 'features/media_scanner/media_scanner_listener.dart';
 import 'features/storage_overview/storage_overview_screen.dart';
+import 'features/task_queue/task_progress_banner.dart';
 
 void main() {
   FlutterError.onError = (details) {
@@ -56,6 +57,26 @@ class DalXApp extends ConsumerWidget {
         GlobalCupertinoLocalizations.delegate,
       ],
       home: const _PermissionGate(),
+      // TaskProgressBanner dipasang di sini (builder), BUKAN di dalam
+      // salah satu screen — supaya muncul di layar MANA PUN selagi
+      // ada task aktif (Explorer, Storage Overview, Settings, dst),
+      // bukan cuma di satu layar tertentu. Ini pola standar Flutter
+      // buat overlay yang perlu persist lintas navigasi (Navigator
+      // ganti-ganti route di dalam `child`, banner-nya di luar itu,
+      // jadi tidak ikut ke-rebuild/hilang pas pindah layar).
+      builder: (context, child) {
+        return Stack(
+          children: [
+            if (child != null) child,
+            const Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: TaskProgressBanner(),
+            ),
+          ],
+        );
+      },
     );
   }
 
