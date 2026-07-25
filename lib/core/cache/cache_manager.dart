@@ -7,12 +7,15 @@
 // asli user di storage TIDAK PERNAH disentuh — cuma folder cache
 // internal app sendiri.
 //
-// CATATAN: DalX belum generate thumbnail gambar/video sungguhan
-// (Grid View di explorer_screen.dart masih pakai icon generik per
-// tipe file, bukan render thumbnail asli) — jadi "Thumbnail Cache"
-// dari nama fase di roadmap belum ada isinya buat dibersihkan.
-// Baru "Folder Cache" (temp dir app) yang riil ada & dibersihkan di
-// sini. Thumbnail generation sungguhan di luar scope Fase 7 ini.
+// Thumbnail cache (features/explorer_ui/thumbnail_tile.dart, native
+// NativeBridge.kt generateThumbnail) SEKARANG ikut ada isinya —
+// disimpan di getTemporaryDirectory()/thumbnails/, jadi otomatis
+// ikut tersapu clearCache() di bawah TANPA logic tambahan (folder
+// yang sama persis dengan cacheDir Kotlin). Cache in-memory Dart-nya
+// (thumbnail_tile.dart) dibersihkan lewat event CacheCleared, yang
+// DIPICU DARI app_drawer.dart (bukan dari sini) — CacheManager ini
+// plain class tanpa akses eventBus/ref, sengaja dijaga tetap begitu
+// (satu-satunya tanggung jawabnya baca/hapus file cache disk).
 
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
@@ -69,10 +72,15 @@ class CacheManager {
     return freedBytes;
   }
 
+  // Basis desimal (1000-an), konsisten dengan perbaikan format di
+  // storage_overview_screen.dart — supaya angka "GB"/"MB" yang
+  // ditampilkan (mis. snackbar "X MB dibebaskan") match konvensi
+  // Settings Android & file manager lain, bukan basis biner (1024,
+  // GiB) yang labelnya salah ditulis "GB".
   static String formatBytes(int bytes) {
-    if (bytes < 1024) return '$bytes B';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    if (bytes < 1024 * 1024 * 1024) return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
+    if (bytes < 1000) return '$bytes B';
+    if (bytes < 1000 * 1000) return '${(bytes / 1000).toStringAsFixed(1)} KB';
+    if (bytes < 1000 * 1000 * 1000) return '${(bytes / (1000 * 1000)).toStringAsFixed(1)} MB';
+    return '${(bytes / (1000 * 1000 * 1000)).toStringAsFixed(1)} GB';
   }
 }

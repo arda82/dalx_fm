@@ -17,6 +17,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/cache/cache_manager.dart';
+import '../../core/events/event_bus.dart';
+import '../../core/events/event_catalog.dart';
 import '../../core/localization/app_strings.dart';
 import '../../core/settings/app_settings.dart';
 import '../../core/storage_access/storage_access.dart';
@@ -122,7 +124,7 @@ class AppDrawer extends ConsumerWidget {
                   _DrawerTile(
                     icon: Icons.cleaning_services_outlined,
                     label: strings.drawerClearCache,
-                    onTap: () => _handleClearCache(context, strings),
+                    onTap: () => _handleClearCache(context, ref, strings),
                   ),
                   const Divider(height: 1),
                   _DrawerTile(
@@ -163,7 +165,7 @@ class AppDrawer extends ConsumerWidget {
   // ARCHITECTURE.md, konfirmasi tetap masuk akal buat aksi yang
   // menghapus data, sekecil apa pun dampaknya). Kalau cache kosong,
   // langsung kasih tau tanpa dialog konfirmasi (nggak ada gunanya).
-  Future<void> _handleClearCache(BuildContext context, AppStrings strings) async {
+  Future<void> _handleClearCache(BuildContext context, WidgetRef ref, AppStrings strings) async {
     Navigator.pop(context); // tutup drawer dulu
     final cacheManager = CacheManager();
     final sizeBytes = await cacheManager.getCacheSize();
@@ -195,6 +197,13 @@ class AppDrawer extends ConsumerWidget {
     if (confirmed != true) return;
 
     final freedBytes = await cacheManager.clearCache();
+    // Cache disk (termasuk folder thumbnails/) sudah bersih di titik
+    // ini — teriak lewat Event System biar cache in-memory Dart yang
+    // punya "cache turunan" (thumbnail_tile.dart) ikut bersihin
+    // punya sendiri. app_drawer.dart yang mancarin, BUKAN CacheManager,
+    // karena cuma di sini ada akses ref/eventBus (lihat catatan di
+    // cache_manager.dart).
+    ref.read(eventBusProvider).fire(const CacheCleared());
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(strings.cacheClearedBody(CacheManager.formatBytes(freedBytes)))),

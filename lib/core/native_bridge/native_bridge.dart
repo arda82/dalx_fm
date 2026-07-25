@@ -176,6 +176,35 @@ class NativeBridge {
     });
   }
 
+  // ---------------- Thumbnail Generation (kekurangan pra-Fase 8) ----------------
+
+  /// Generate (atau ambil dari cache disk kalau sudah ada) thumbnail
+  /// untuk file gambar/video di [path]. [modifiedAtMillis] dipakai
+  /// native sebagai bagian cache key (bareng [path]) — thumbnail
+  /// otomatis "invalid" sendiri kalau file aslinya berubah, tanpa
+  /// perlu tracking manual dari Dart. Native yang generate DAN cek
+  /// cache disk-nya sekaligus (idempotent) — panggilan kedua untuk
+  /// file yang sama langsung balik cepat tanpa decode ulang.
+  ///
+  /// Return path file thumbnail JPEG kecil di cache dir DalX, atau
+  /// null kalau gagal (file korup, dll) — caller WAJIB fallback ke
+  /// icon generik, bukan anggap ini selalu sukses.
+  Future<String?> generateThumbnail(
+    String path, {
+    required int modifiedAtMillis,
+    required bool isVideo,
+  }) async {
+    try {
+      return await _channel.invokeMethod<String>('generateThumbnail', {
+        'path': path,
+        'modifiedAtMillis': modifiedAtMillis,
+        'isVideo': isVideo,
+      });
+    } on PlatformException {
+      return null;
+    }
+  }
+
   /// Tebak MIME type dari ekstensi file, dipakai untuk [openWith] dan
   /// deteksi APK. Sederhana by-extension, bukan pakai package
   /// eksternal — cukup untuk kebutuhan Fase 1.

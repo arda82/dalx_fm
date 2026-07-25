@@ -178,6 +178,26 @@ class ApkInstallRequested extends DalXEvent {
 }
 
 // ============================================================
+// PERBAIKAN PRA-FASE 8 — Thumbnail Generation & Storage Fix
+// ============================================================
+
+/// Dipicu setelah "Bersihkan Cache" (drawer) selesai menghapus isi
+/// cache dir app. Tidak membawa data apa pun — sekadar sinyal
+/// "cache disk sudah kosong, siapa pun yang punya cache turunan di
+/// memory wajib ikut bersihin punya sendiri juga".
+///
+/// Didengarkan oleh: explorer_ui (thumbnail_tile.dart) — hapus cache
+/// in-memory Future thumbnail, supaya tidak terus mengacu ke file
+/// thumbnail yang sudah kehapus dari disk.
+///
+/// Dipicu oleh: app_drawer.dart, setelah CacheManager.clearCache()
+/// sukses (BUKAN dari dalam CacheManager sendiri — class itu plain,
+/// sengaja tidak dikasih akses eventBus/ref).
+class CacheCleared extends DalXEvent {
+  const CacheCleared();
+}
+
+// ============================================================
 // FASE 2 DAN SETERUSNYA — BELUM DIIMPLEMENTASI
 // ============================================================
 //
