@@ -322,7 +322,7 @@ class ExplorerScreen extends ConsumerWidget {
             if (canExtract)
               PopupMenuItem(value: 'extract', child: Text(strings.extract)),
             if (canRotatePdf)
-              const PopupMenuItem(value: 'rotate_pdf', child: Text('Rotate PDF')),
+              PopupMenuItem(value: 'rotate_pdf', child: Text(strings.rotatePdf)),
             PopupMenuItem(
               value: 'favorite',
               child: Text(allFavorited ? strings.removeFromFavorites : strings.addToFavorites),
@@ -404,22 +404,23 @@ class ExplorerScreen extends ConsumerWidget {
 
   /// Return sudut rotasi (90/180/-90) atau null kalau dibatalkan.
   Future<int?> _showRotateAngleDialog(BuildContext context) {
+    final strings = AppStrings.of(context);
     return showDialog<int>(
       context: context,
       builder: (context) => SimpleDialog(
-        title: const Text('Rotate PDF'),
+        title: Text(strings.rotatePdf),
         children: [
           SimpleDialogOption(
             onPressed: () => Navigator.pop(context, 90),
-            child: const Row(children: [Icon(Icons.rotate_right), SizedBox(width: 12), Text('Putar 90° searah jarum jam')]),
+            child: Row(children: [const Icon(Icons.rotate_right), const SizedBox(width: 12), Text(strings.rotatePdfClockwise)]),
           ),
           SimpleDialogOption(
             onPressed: () => Navigator.pop(context, -90),
-            child: const Row(children: [Icon(Icons.rotate_left), SizedBox(width: 12), Text('Putar 90° berlawanan jarum jam')]),
+            child: Row(children: [const Icon(Icons.rotate_left), const SizedBox(width: 12), Text(strings.rotatePdfCounterClockwise)]),
           ),
           SimpleDialogOption(
             onPressed: () => Navigator.pop(context, 180),
-            child: const Row(children: [Icon(Icons.flip_camera_android), SizedBox(width: 12), Text('Putar 180°')]),
+            child: Row(children: [const Icon(Icons.flip_camera_android), const SizedBox(width: 12), Text(strings.rotatePdf180)]),
           ),
         ],
       ),

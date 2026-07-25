@@ -364,6 +364,16 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
     await _taskQueue.extract(archivePath, destinationDir, strategy: strategy);
   }
 
+  // ---------------- Fase 8 Pilar #3: Edit PDF (Rotate) ----------------
+
+  /// Rotate PDF terpilih (harus persis 1 file, dicek di UI lewat
+  /// canRotatePdf). Hasil file baru "_rotated.pdf" — lihat
+  /// TaskQueue.rotatePdf.
+  Future<void> rotatePdf(String sourcePath, int degrees) async {
+    state = state.copyWith(selectedPaths: {});
+    await _taskQueue.rotatePdf(sourcePath, degrees);
+  }
+
   // ---------------- Hidden Files, Sort & View Mode ----------------
 
   void toggleShowHidden() {

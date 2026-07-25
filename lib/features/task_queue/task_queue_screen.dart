@@ -150,6 +150,8 @@ class _TaskCard extends StatelessWidget {
         return strings.taskCompress;
       case TaskType.extract:
         return strings.taskExtract;
+      case TaskType.rotatePdf:
+        return strings.taskRotatePdf;
     }
   }
 
@@ -165,6 +167,8 @@ class _TaskCard extends StatelessWidget {
         return Icons.folder_zip_outlined;
       case TaskType.extract:
         return Icons.unarchive_outlined;
+      case TaskType.rotatePdf:
+        return Icons.rotate_right;
     }
   }
 }
