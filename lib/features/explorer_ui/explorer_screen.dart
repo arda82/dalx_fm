@@ -66,6 +66,7 @@ import '../favorites/favorites_service.dart';
 import '../file_engine/file_engine.dart';
 import '../media_viewer/image_viewer_screen.dart';
 import '../media_viewer/video_viewer_screen.dart';
+import '../ppt_viewer/ppt_viewer_screen.dart';
 import '../storage_overview/storage_overview_screen.dart';
 import '../task_queue/task.dart';
 import '../task_queue/task_queue_screen.dart';
@@ -73,6 +74,7 @@ import 'app_drawer.dart';
 import 'explorer_state.dart';
 import 'file_info_sheet.dart';
 import 'folder_picker_screen.dart';
+import 'thumbnail_tile.dart';
 
 const dalxAccent = Color(0xFF0A84FF);
 
@@ -99,6 +101,11 @@ class ExplorerScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Aktifin listener CacheCleared -> clearThumbnailMemoryCache()
+    // (lihat thumbnail_tile.dart). Cuma perlu di-watch, tidak dipakai
+    // nilainya (Provider<void>).
+    ref.watch(thumbnailCacheClearListenerProvider);
+
     final explorerState = ref.watch(explorerProvider(rootPath));
     final notifier = ref.read(explorerProvider(rootPath).notifier);
 
@@ -726,6 +733,14 @@ class ExplorerScreen extends ConsumerWidget {
       return;
     }
 
+    if (item.isPpt) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => PptViewerScreen(path: item.path)),
+      );
+      return;
+    }
+
     if (item.isCodeFile) {
       Navigator.push(
         context,
@@ -855,7 +870,10 @@ class ExplorerScreen extends ConsumerWidget {
           padding: const EdgeInsets.all(6),
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 5,
-            childAspectRatio: 0.78,
+            // Disesuaikan biar cukup ruang buat icon 52px + font 13px
+            // (ukuran dibesarkan biar setara CX File Manager) tanpa
+            // overflow — dulu 0.78 pas buat icon 32px/font 10px.
+            childAspectRatio: 0.68,
             mainAxisSpacing: 4,
             crossAxisSpacing: 2,
           ),
@@ -1168,10 +1186,22 @@ class _FileListTile extends StatelessWidget {
                 isSelected ? Icons.check_circle : Icons.circle_outlined,
                 color: isSelected ? dalxAccent : Colors.grey,
               )
-            : Icon(
-                item.isFolder ? Icons.folder : _iconForExtension(item.extension),
-                color: item.isFolder ? dalxAccent : Colors.grey,
-              ),
+            : (item.isThumbnailable
+                ? ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: SizedBox(
+                      width: 40,
+                      height: 40,
+                      child: DalxThumbnail(
+                        item: item,
+                        fallback: Icon(_iconForExtension(item.extension), color: Colors.grey),
+                      ),
+                    ),
+                  )
+                : Icon(
+                    item.isFolder ? Icons.folder : _iconForExtension(item.extension),
+                    color: item.isFolder ? dalxAccent : Colors.grey,
+                  )),
         title: Text(
           item.name,
           maxLines: 1,
@@ -1239,22 +1269,53 @@ class _FileGridTile extends StatelessWidget {
         child: Stack(
           children: [
             Column(
-              mainAxisAlignment: MainAxisAlignment.center,
+              // START (bukan center) + tinggi teks direserve tetap di
+              // bawah — biar posisi icon SELALU sama persis di semua
+              // cell, nggak peduli nama filenya 1 baris atau 2 baris.
+              // Sebelumnya pakai `center`: nama file pendek (1 baris)
+              // vs panjang (2 baris) punya tinggi konten beda, jadi
+              // icon ikut kegeser naik-turun antar cell -> kelihatan
+              // "berantakan" walau urutan filenya sebenarnya sudah
+              // benar (lihat diskusi perbandingan dengan CX FM).
+              mainAxisAlignment: MainAxisAlignment.start,
               children: [
-                Icon(
-                  item.isFolder ? Icons.folder : _iconForExtension(item.extension),
-                  size: 32,
-                  color: item.isFolder ? dalxAccent : Colors.grey,
+                const SizedBox(height: 6),
+                SizedBox(
+                  width: 56,
+                  height: 56,
+                  child: item.isThumbnailable
+                      ? ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: DalxThumbnail(
+                            item: item,
+                            fallback: Center(
+                              child: Icon(_iconForExtension(item.extension), size: 52, color: Colors.grey),
+                            ),
+                          ),
+                        )
+                      : Center(
+                          child: Icon(
+                            item.isFolder ? Icons.folder : _iconForExtension(item.extension),
+                            size: 52,
+                            color: item.isFolder ? dalxAccent : Colors.grey,
+                          ),
+                        ),
                 ),
-                const SizedBox(height: 3),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 2),
-                  child: Text(
-                    item.name,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, height: 1.15),
-                    textAlign: TextAlign.center,
+                const SizedBox(height: 5),
+                // Tinggi direserve TETAP (cukup buat 2 baris) supaya
+                // nama file 1 baris tidak bikin cell itu "lebih
+                // pendek" dari cell tetangga yang 2 baris.
+                SizedBox(
+                  height: 34,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 2),
+                    child: Text(
+                      item.name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, height: 1.15),
+                      textAlign: TextAlign.center,
+                    ),
                   ),
                 ),
               ],

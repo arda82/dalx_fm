@@ -4,8 +4,10 @@ Dokumen ini adalah acuan arsitektur DalX. Dibaca ulang tiap kali mulai
 sub-fase baru atau lupa alasan di balik sebuah keputusan desain.
 
 > **Status keseluruhan (per update ini):** Sub-Fase 0a, 0b, dan Fase
-> 1–7 **SELESAI & TERUJI**. Fase 8 sedang di tahap perencanaan scope
-> (lihat bagian 7).
+> 1–7 **SELESAI & TERUJI**. Perbaikan pra-Fase 8 (Thumbnail
+> Generation, Storage Fix, Grid View tuning — lihat bagian 7.1)
+> **SELESAI**. Fase 8 **DIMULAI**, pilar #1 (Preview PPT) sedang
+> dikerjakan.
 
 ## 1. Gambaran Umum
 
@@ -57,7 +59,8 @@ lib/
 └── features/                     ← satu folder = satu fitur/menu
     ├── file_engine/                ← Copy/Move/Delete/Rename/New Folder
     ├── explorer_ui/                ← List/Grid, breadcrumb, search, sort,
-    │                                action mode, drawer, pick mode
+    │                                action mode, drawer, pick mode,
+    │                                thumbnail_tile.dart (lihat 7.1)
     ├── storage_overview/            ← "Layar Awal" default, kartu
     │                                Internal/SD/USB + RAM real-time
     ├── task_queue/                  ← DalXTask model, TaskType, ConflictStrategy
@@ -130,6 +133,7 @@ cepat tanpa buka kode.
 | `TaskCompleted` | Task selesai (sukses/gagal) | task_queue UI, explorer_ui |
 | `ExternalFileOpened` | DalX dibuka dari luar via file (Open With / Share) | explorer_ui |
 | `ApkInstallRequested` | User pilih Install APK dari Explorer | native_bridge |
+| `CacheCleared` | "Bersihkan Cache" (drawer) selesai hapus isi cache disk | explorer_ui (thumbnail_tile.dart, hapus cache in-memory) |
 
 Belum diimplementasikan, dicatat sebagai cakupan Fase 8:
 - `StorageRemoved` (kebalikan `StorageMounted`) — relevan begitu USB
@@ -241,7 +245,72 @@ infrastruktur + sebagian besar layar utama sudah dilokalisasi
 (lihat bagian 6), APK size optimization (minify + shrink + proguard,
 split-per-abi).
 
-**Fase 8 — Native Power-up** 🔧 SCOPE DIKUNCI, BELUM DIKERJAKAN
+## 7.1 Perbaikan Pra-Fase 8 (selesai)
+
+Sebelum mulai Fase 8, 3 kekurangan yang ditemukan Damar dibereskan
+dulu (item "Sapu Cache Semua App via Root Mode" SENGAJA di-skip,
+bukan dikerjakan):
+
+**A. Thumbnail Generation**
+- Native (`NativeBridge.kt`, method `generateThumbnail`): gambar
+  didecode pakai `inSampleSize` (downscale SAAT decode, bukan decode
+  resolusi penuh baru resize — aman buat foto kamera puluhan MB),
+  video pakai `MediaMetadataRetriever.getFrameAtTime()`. Semua jalan
+  di **background thread** (bukan platform thread) supaya tidak
+  freeze UI pas scroll cepat.
+- Hasil JPEG disimpan di `cacheDir/thumbnails/` (native), key dari
+  MD5 hash `path|modifiedAtMillis` — **idempotent** (cache hit
+  langsung balik cepat tanpa decode ulang) dan otomatis "invalid"
+  sendiri kalau file aslinya berubah, tanpa tracking manual.
+- Dart (`thumbnail_tile.dart`, baru, di `features/explorer_ui/`):
+  widget `DalxThumbnail` lazy-load + cache in-memory `Future` (biar
+  method channel tidak dipanggil berulang pas `ListView`/`GridView`
+  recycle widget saat scroll bolak-balik). Dipasang di List & Grid
+  View (`explorer_screen.dart`), fallback ke icon generik selagi
+  loading/gagal.
+- `FileItem` dapat getter `isThumbnailable` (`isImage || isVideo`).
+
+**B. Storage Discrepancy (DalX vs Settings Android vs CX File Manager)**
+- Root cause: `totalBytes` dihitung dari `StatFs.blockCountLong`
+  mentah, yang cuma menghitung block riil di partisi data (~10%
+  lebih kecil dari kapasitas nominal chip karena overhead sistem/
+  wear-leveling tidak masuk hitungan block filesystem biasa) —
+  sedangkan Settings Android & CX baca dari sumber yang kembalikan
+  kapasitas "resmi".
+- Fix: `totalBytes` diganti ke **`StorageStatsManager.getTotalBytes()`**
+  di 2 tempat — `MainActivity.kt` (`getStorageInfo`, Internal Storage,
+  pakai `StorageManager.UUID_DEFAULT`) dan `NativeBridge.kt`
+  (`getStorageCapacity`, SD Card/USB OTG, UUID dicari lewat
+  `StorageManager.getUuidForPath()` dari path manapun). `freeBytes`
+  tetap dari `StatFs` (sudah akurat). Ada fallback ke `StatFs` mentah
+  kalau API gagal.
+- Bug kedua (independen, cosmetic): format tampilan GB di
+  `storage_overview_screen.dart` & `cache_manager.dart` pakai basis
+  biner (`1024³`, GiB) tapi labelnya ditulis "GB" — diseragamkan ke
+  basis desimal (`1000³`) supaya matching konvensi Settings/CX.
+- Event baru `CacheCleared` (lihat bagian 4) ditambah karena
+  `CacheManager` (plain class, tidak punya akses `eventBus`/`ref`)
+  perlu cara ngasih tau `thumbnail_tile.dart` buat bersihin cache
+  in-memory-nya begitu cache disk dibersihkan — dipicu dari
+  `app_drawer.dart` (yang punya `ref`), BUKAN dari dalam
+  `CacheManager` sendiri.
+
+**C. Grid View — Ukuran & Kerapian (permintaan Damar, dibandingkan
+langsung dengan CX File Manager lewat screenshot)**
+- Icon dibesarkan 32px → 52px (kontainer 40×40 → 56×56), font nama
+  file 10px → 13px, `childAspectRatio` disesuaikan 0.78 → 0.68.
+- Bug alignment: `Column` isi tiap grid tile pakai
+  `mainAxisAlignment.center` — nama file 1 baris vs 2 baris punya
+  tinggi konten beda, jadi icon ikut kegeser naik-turun antar cell
+  dalam baris yang sama (kelihatan "berantakan" walau urutan file-nya
+  sebenarnya sudah benar/alfabetis, sama persis dengan CX). Fix:
+  `mainAxisAlignment.start` + tinggi teks direserve TETAP (34px,
+  cukup 2 baris) — posisi icon jadi selalu sama persis di semua cell.
+
+## 7.2 Roadmap Fase 8 — Native Power-up
+
+**Status: 🔧 DIMULAI** — scope dikunci penuh (hasil diskusi dengan
+Damar), pilar #1 (Preview PPT) sedang dikerjakan.
 
 Urutan pengerjaan (prioritas Damar):
 
@@ -307,5 +376,8 @@ Urutan pengerjaan (prioritas Damar):
 | Localization | Custom `AppStrings` pure Dart via `Localizations`/`LocalizationsDelegate` bawaan Flutter — bukan `flutter gen-l10n`/`.arb`, supaya tidak ada code-gen step tambahan di CI |
 | Compress/Archive (Fase 5) | `package:archive` pure Dart, ZIP saja |
 | Compress/Archive (Fase 8, rencana) | Apache Commons Compress + XZ Java via JNI/Kotlin (`NativeBridge`) — bukan libarchive/FFI |
+| Thumbnail generation | Native (Kotlin, background thread) — bukan pakai `ContentResolver.loadThumbnail()` (cuma jalan untuk file yang ter-index MediaStore, banyak file relevan buat power user DalX ada di luar situ). Cache disk key: MD5 `path\|modifiedAtMillis`, idempotent |
+| Total storage (Internal/SD/USB) | `StorageStatsManager.getTotalBytes()` — bukan `StatFs.blockCountLong` mentah (lebih kecil ~10% dari kapasitas nominal, tidak matching Settings Android/CX File Manager) |
+| Format ukuran (GB/MB ditampilkan ke user) | Basis desimal (`1000³`/`1000²`) — bukan biner (`1024³`, GiB) berlabel salah "GB" |
 | APK size | `minifyEnabled` + `shrinkResources` + ProGuard aktif; split-per-ABI WAJIB lewat flag CLI `flutter build apk --split-per-abi` di workflow, bukan `splits{abi{}}` manual di `build.gradle` (konflik dengan abiFilters otomatis Flutter Gradle Plugin versi baru) |
 | Workflow build | Develop di Termux (Android), build APK via GitHub Actions (Flutter 3.29.3) — mengikuti pola project TaniLog |

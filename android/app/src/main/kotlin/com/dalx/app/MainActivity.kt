@@ -35,6 +35,11 @@ import io.flutter.plugin.common.MethodChannel
 //   buat kabarin Dart tiap ada SD Card/USB OTG dicolok atau dicabut,
 //   pakai StorageManager.registerStorageVolumeCallback (API 30+,
 //   sesuai minSdk DalX) — bukan BroadcastReceiver legacy.
+// - "com.dalx.app/archive_stream" (Fase 8 Pilar #2) — EventChannel
+//   progress real-time buat compress/extract 7z & extract RAR
+//   (native, lihat NativeBridge.kt) — dipakai selama operasi native
+//   berjalan di background thread, supaya progress bar Task Queue
+//   Dart nggak cuma lompat 0% -> 100%.
 class MainActivity : FlutterActivity() {
     private val deviceInfoChannelName = "com.dalx.app/device_info"
 
@@ -84,6 +89,19 @@ class MainActivity : FlutterActivity() {
             }
             override fun onCancel(arguments: Any?) {
                 nativeBridge.attachStorageEventSink(null)
+            }
+        })
+
+        // ---------------- archive_stream (Fase 8 Pilar #2) ----------------
+        EventChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "com.dalx.app/archive_stream"
+        ).setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                nativeBridge.attachArchiveEventSink(events)
+            }
+            override fun onCancel(arguments: Any?) {
+                nativeBridge.attachArchiveEventSink(null)
             }
         })
     }

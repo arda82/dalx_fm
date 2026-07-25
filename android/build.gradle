@@ -2,6 +2,10 @@ allprojects {
     repositories {
         google()
         mavenCentral()
+        // Fase 8 Pilar #2: junrar (extract RAR) di-hosting di JitPack,
+        // bukan Maven Central. Commons Compress & XZ (7z) sudah cukup
+        // dari mavenCentral() di atas, cuma junrar yang butuh ini.
+        maven { url 'https://jitpack.io' }
     }
 }
 

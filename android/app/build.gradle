@@ -118,3 +118,22 @@ android {
 flutter {
     source '../..'
 }
+
+// Fase 8 Pilar #2: Compress Native. Cuma dipakai untuk format yang
+// package:archive (Dart) TIDAK bisa handle — 7z (compress+extract)
+// dan RAR (extract doang, RAR encoder proprietary). ZIP/tar/tar.gz
+// TETAP pure Dart (package:archive sudah cukup, lihat ARCHITECTURE.md
+// bagian 7.2 Pilar #2 — revisi scope).
+dependencies {
+    // 7z read/write + tar/zip lain-lain (tidak dipakai di sini, cuma
+    // 7z yang butuh — tapi 1 artifact ini sudah cover semuanya)
+    implementation 'org.apache.commons:commons-compress:1.26.2'
+    // Commons Compress butuh ini terpisah buat kompresi LZMA2 di 7z
+    // (tanpa ini, decode 7z LZMA2 juga gagal — banyak file 7z modern
+    // pakai LZMA2 sebagai default)
+    implementation 'org.tukaani:xz:1.9'
+    // RAR extract — Commons Compress TIDAK PERNAH support RAR (soal
+    // lisensi/patent seputar algoritma unrar asli). junrar: pure
+    // Java, LGPL, fork aktif dari implementasi unrar lama.
+    implementation 'com.github.junrar:junrar:7.5.5'
+}

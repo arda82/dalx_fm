@@ -79,7 +79,18 @@ class FileItem {
 
   static const _pdfExts = {'pdf'};
   static const _spreadsheetExts = {'xlsx'};
+  // .ppt (format binary lama) DILUAR SCOPE — cuma .pptx (ZIP+XML)
+  // yang didukung, konsisten sama keputusan Fase 8 Pilar #1.
+  static const _pptExts = {'pptx'};
 
   bool get isPdf => !isFolder && _pdfExts.contains(extension);
   bool get isSpreadsheet => !isFolder && _spreadsheetExts.contains(extension);
+  bool get isPpt => !isFolder && _pptExts.contains(extension);
+
+  // ---------------- Thumbnail Generation ----------------
+  // Dipakai explorer_ui (List & Grid View) buat nentuin item mana yang
+  // layak diminta thumbnail asli ke native (core/native_bridge) —
+  // cuma gambar & video, tipe lain tetap pakai icon generik.
+
+  bool get isThumbnailable => isImage || isVideo;
 }

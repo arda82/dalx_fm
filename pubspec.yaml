@@ -46,6 +46,10 @@ dependencies:
   # Fase 7: Bersihkan Cache — akses direktori cache app
   path_provider: ^2.1.4
 
+  # Fase 8 Pilar #1: Preview PPT — parsing XML manual isi .pptx
+  # (belum ada package Flutter matang buat baca .pptx langsung)
+  xml: ^6.5.0
+
   # Ikon Material Design tambahan (opsional, dipakai bertahap)
   cupertino_icons: ^1.0.8
 
