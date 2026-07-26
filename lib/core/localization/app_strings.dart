@@ -157,13 +157,6 @@ class AppStrings {
   String get taskDelete => _t('Menghapus', 'Deleting');
   String get taskCompress => _t('Mengompres', 'Compressing');
   String get taskExtract => _t('Mengekstrak', 'Extracting');
-  String get taskRotatePdf => _t('Memutar PDF', 'Rotating PDF');
-
-  // ---------------- Fase 8 Pilar #3: Edit PDF (Rotate) ----------------
-  String get rotatePdf => _t('Rotate PDF', 'Rotate PDF');
-  String get rotatePdfClockwise => _t('Putar 90° searah jarum jam', 'Rotate 90° clockwise');
-  String get rotatePdfCounterClockwise => _t('Putar 90° berlawanan jarum jam', 'Rotate 90° counter-clockwise');
-  String get rotatePdf180 => _t('Putar 180°', 'Rotate 180°');
 
   // ---------------- App Drawer ----------------
   String get drawerHome => _t('Layar Awal', 'Home');

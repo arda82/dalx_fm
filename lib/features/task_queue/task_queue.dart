@@ -139,42 +139,6 @@ class TaskQueue extends StateNotifier<List<DalXTask>> {
     }
   }
 
-  // ---------------- Fase 8 Pilar #3: Edit PDF (Rotate) ----------------
-
-  /// Rotate semua halaman PDF di [sourcePath] sejauh [degrees]
-  /// (kelipatan 90), simpan sebagai file BARU "<nama>_rotated.pdf"
-  /// di folder yang sama — TIDAK menimpa file asli. Kalau nama itu
-  /// sudah dipakai, otomatis di-increment "(1)", "(2)", dst (reuse
-  /// [_resolveAvailableFilePath], sama seperti [compress]).
-  Future<void> rotatePdf(String sourcePath, int degrees) async {
-    final dir = sourcePath.substring(0, sourcePath.lastIndexOf(Platform.pathSeparator));
-    final fileName = sourcePath.split(Platform.pathSeparator).last;
-    final baseName = fileName.toLowerCase().endsWith('.pdf')
-        ? fileName.substring(0, fileName.length - 4)
-        : fileName;
-    final resolvedPath = await _resolveAvailableFilePath(dir, '${baseName}_rotated.pdf');
-
-    final task = DalXTask(
-      id: _newTaskId(),
-      type: TaskType.rotatePdf,
-      sourcePaths: [sourcePath],
-      destinationPath: resolvedPath,
-    );
-    _addTask(task);
-
-    _updateTask(task.id, (t) => t.copyWith(status: TaskStatus.running));
-    try {
-      await _nativeBridge.rotatePdf(sourcePath, resolvedPath, degrees);
-      _updateTask(task.id, (t) => t.copyWith(status: TaskStatus.completed, progress: 1.0));
-      _eventBus.fire(FileCreated(resolvedPath, isFolder: false));
-      _eventBus.fire(TaskCompleted(task.id, success: true));
-    } catch (e) {
-      debugPrint('Task rotate PDF gagal: $e');
-      _updateTask(task.id, (t) => t.copyWith(status: TaskStatus.failed, errorMessage: e.toString()));
-      _eventBus.fire(TaskCompleted(task.id, success: false, errorMessage: e.toString()));
-    }
-  }
-
   /// Ekstrak isi [archivePath] ke sub-folder baru di [destinationDir],
   /// nama sub-folder = nama file arsip tanpa ekstensinya. [strategy]
   /// menentukan perlakuan kalau nama sub-folder itu sudah dipakai di

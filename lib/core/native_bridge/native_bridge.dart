@@ -288,27 +288,6 @@ class NativeBridge {
     });
   }
 
-  // ---------------- Edit PDF: Rotate (Fase 8 Pilar #3) ----------------
-
-  /// Rotate SEMUA halaman file PDF di [sourcePath] sejauh [degrees]
-  /// (kelipatan 90 — 90/180/270/-90 dst), simpan hasilnya sebagai
-  /// file BARU di [destinationPath] (TIDAK menimpa file asli — lebih
-  /// aman, konsisten sama prinsip proyek "jangan rusak data user
-  /// tanpa sengaja"). Operasi RINGAN (cuma ubah dictionary /Rotate
-  /// per halaman, bukan render ulang isi), jadi TIDAK ada progress
-  /// granular — cukup tunggu sampai selesai/gagal.
-  Future<void> rotatePdf(
-    String sourcePath,
-    String destinationPath,
-    int degrees,
-  ) async {
-    await _channel.invokeMethod('rotatePdf', {
-      'sourcePath': sourcePath,
-      'destinationPath': destinationPath,
-      'degrees': degrees,
-    });
-  }
-
   /// Tebak MIME type dari ekstensi file, dipakai untuk [openWith] dan
   /// deteksi APK. Sederhana by-extension, bukan pakai package
   /// eksternal — cukup untuk kebutuhan Fase 1.

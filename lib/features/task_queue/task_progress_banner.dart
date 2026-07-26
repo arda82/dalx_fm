@@ -75,7 +75,6 @@ class _BannerCard extends ConsumerWidget {
   /// konsisten sama cara task_queue.dart sendiri nentuin routing
   /// native/Dart (lihat TaskQueue.extract/compress).
   bool get _isCancelable {
-    if (task.type == TaskType.rotatePdf) return false;
     if (task.type == TaskType.compress) {
       final path = (task.destinationPath ?? '').toLowerCase();
       return !path.endsWith('.7z');
@@ -99,8 +98,6 @@ class _BannerCard extends ConsumerWidget {
         return Icons.folder_zip;
       case TaskType.extract:
         return Icons.unarchive;
-      case TaskType.rotatePdf:
-        return Icons.rotate_right;
     }
   }
 
