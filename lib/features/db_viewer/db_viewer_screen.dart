@@ -28,9 +28,13 @@
 //   deklarasi tabel, supaya tetap jalan walau tabel tidak punya PK
 //   eksplisit atau PK-nya komposit.
 
-import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:sqlite3/sqlite3.dart';
+// `hide Row` WAJIB — package sqlite3 punya class Row sendiri (1 baris
+// hasil query) yang namanya BENTROK sama widget Row bawaan Flutter
+// (layout horizontal). Kita nggak pernah butuh tipe Row dari sqlite3
+// secara eksplisit di file ini (selalu diakses via `row['nama_kolom']`
+// dengan inferensi tipe), jadi aman di-hide sepenuhnya.
+import 'package:sqlite3/sqlite3.dart' hide Row;
 
 const _dalxAccent = Color(0xFF0A84FF);
 const _bgApp = Color(0xFF0D0D0D);
