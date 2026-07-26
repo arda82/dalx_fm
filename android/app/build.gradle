@@ -145,12 +145,10 @@ dependencies {
     // dictionary /Rotate per halaman), BUKAN render ulang jadi
     // gambar — teks tetap tajam & searchable.
     //
-    // CATATAN VERSI: sempat coba 2.0.27.0, GAGAL — "Unresolved
-    // reference PDFBoxResourceLoader" di compile Kotlin walau file
-    // AAR-nya kebukti berhasil didownload & ditransformasi Gradle
-    // (log verbose nunjukin nyasar ke BuildToolsApiClasspathEntry-
-    // SnapshotTransform, bukan classpath compile normal — dugaan
-    // bug metadata versi itu bentrok AGP 8.6.1). Coba versi lebih
-    // lama dulu.
-    implementation 'com.tom-roush:pdfbox-android:2.0.24.0'
+    // CATATAN: sempat error "Unresolved reference PDFBoxResourceLoader"
+    // — SEMPAT diduga soal versi (dicoba turun ke 2.0.24.0), TERNYATA
+    // itu bug Kotlin 2.0.x "Build Tools API" classpath-snapshot, fix-nya
+    // di android/gradle.properties (kotlin.incremental.useClasspathSnapshot=false),
+    // BUKAN soal versi dependency ini. Balik ke versi terbaru.
+    implementation 'com.tom-roush:pdfbox-android:2.0.27.0'
 }
