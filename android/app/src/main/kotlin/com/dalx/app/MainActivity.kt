@@ -7,7 +7,7 @@ import android.content.Intent
 import android.os.Environment
 import android.os.StatFs
 import android.os.storage.StorageManager
-import com.tom_roush.pdfbox.util.PDFBoxResourceLoader
+import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
