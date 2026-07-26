@@ -50,6 +50,19 @@ dependencies:
   # (belum ada package Flutter matang buat baca .pptx langsung)
   xml: ^6.5.0
 
+  # Fase 9: Database Viewer. sqlite3 = FFI binding Dart resmi ke
+  # SQLite engine. sqlite3_flutter_libs = bundle native libsqlite3.so
+  # per-ABI Android (biar tidak perlu compile native sendiri).
+  sqlite3: ^2.4.6
+  sqlite3_flutter_libs: ^0.5.24
+
+  # CATATAN Fase 8 Pilar #3 (Edit PDF - rotate halaman): sempat coba
+  # syncfusion_flutter_pdf, DIBATALKAN — proses validasi Community
+  # License-nya (butuh LinkedIn/Xing) terlalu berbelit. Pivot ke
+  # PdfBox-Android (native Kotlin, Apache License 2.0, lihat
+  # android/app/build.gradle) — TIDAK butuh dependency Dart baru di
+  # sini sama sekali, semua lewat NativeBridge.
+
   # Ikon Material Design tambahan (opsional, dipakai bertahap)
   cupertino_icons: ^1.0.8
 

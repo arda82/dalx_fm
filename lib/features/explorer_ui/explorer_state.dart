@@ -72,14 +72,20 @@ class ExplorerState {
 class ExplorerNotifier extends StateNotifier<ExplorerState> {
   final FileEngine _fileEngine;
   final TaskQueue _taskQueue;
+  final ExplorerDefaultsNotifier _explorerDefaultsNotifier;
 
   // Dipakai untuk Cut-Paste: menyimpan path yang di-"cut" sampai user
   // paste di folder lain. Null berarti tidak ada operasi cut aktif.
   List<String>? _cutPaths;
   List<String>? _pendingCopyPaths;
 
-  ExplorerNotifier(this._fileEngine, this._taskQueue, DalXEventBus eventBus, ExplorerDefaults defaults)
-      : super(ExplorerState(
+  ExplorerNotifier(
+    this._fileEngine,
+    this._taskQueue,
+    DalXEventBus eventBus,
+    ExplorerDefaults defaults,
+    this._explorerDefaultsNotifier,
+  ) : super(ExplorerState(
           viewMode: defaults.defaultView == 'grid' ? ViewMode.grid : ViewMode.list,
           sortMode: _sortModeFromString(defaults.defaultSort),
           showHidden: defaults.defaultHidden,
@@ -122,6 +128,27 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
         return SortMode.size;
       default:
         return SortMode.name;
+    }
+  }
+
+  /// Kebalikan [_sortModeFromString] — dipakai [setSortMode] buat
+  /// nulis balik pilihan user ke SharedPreferences (lihat
+  /// ExplorerDefaultsNotifier.setDefaultSort), supaya sort mode yang
+  /// dipilih user PERSIST jadi default beneran, bukan cuma nempel di
+  /// sesi Explorer yang lagi berjalan. `dateOldest` SENGAJA dipetakan
+  /// ke string 'date' yang sama kayak `dateNewest` — ExplorerDefaults
+  /// primitif cuma tau 3 kategori (name/date/size, lihat
+  /// app_settings.dart), arah baru/lama dalam kategori 'date' bukan
+  /// bagian dari "default" yang di-persist, cukup kategorinya.
+  static String _sortModeToString(SortMode mode) {
+    switch (mode) {
+      case SortMode.dateNewest:
+      case SortMode.dateOldest:
+        return 'date';
+      case SortMode.size:
+        return 'size';
+      case SortMode.name:
+        return 'name';
     }
   }
 
@@ -376,6 +403,12 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
     _fileEngine.sortMode = mode;
     state = state.copyWith(sortMode: mode);
     refresh();
+    // Persist ke SharedPreferences (lewat ExplorerDefaultsNotifier)
+    // — sebelumnya cuma diubah di state Riverpod sesi berjalan, jadi
+    // balik ke default lama tiap app di-restart. Fire-and-forget
+    // (tidak di-await) karena UI Explorer tidak perlu nunggu proses
+    // simpan selesai buat langsung kelihatan responsif.
+    _explorerDefaultsNotifier.setDefaultSort(_sortModeToString(mode));
   }
 
   /// Toggle List View <-> Grid View (Fase 2 — Explorer Polish).
@@ -414,6 +447,7 @@ final explorerProvider = StateNotifierProvider.family<ExplorerNotifier, Explorer
     // .watch, ganti default akan ke-reset Explorer yang lagi dibuka
     // user tanpa diminta).
     final defaults = ref.read(explorerDefaultsProvider);
-    return ExplorerNotifier(fileEngine, taskQueue, eventBus, defaults);
+    final explorerDefaultsNotifier = ref.read(explorerDefaultsProvider.notifier);
+    return ExplorerNotifier(fileEngine, taskQueue, eventBus, defaults, explorerDefaultsNotifier);
   },
 );

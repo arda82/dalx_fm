@@ -86,10 +86,15 @@ class FileItem {
   // .ppt (format binary lama) DILUAR SCOPE — cuma .pptx (ZIP+XML)
   // yang didukung, konsisten sama keputusan Fase 8 Pilar #1.
   static const _pptExts = {'pptx'};
+  // Fase 9: Database Viewer. SQLite pakai banyak konvensi ekstensi
+  // beda-beda tergantung app yang bikin (.db paling umum, tapi
+  // .sqlite/.sqlite3/.db3 juga lazim ditemuin).
+  static const _databaseExts = {'db', 'sqlite', 'sqlite3', 'db3'};
 
   bool get isPdf => !isFolder && _pdfExts.contains(extension);
   bool get isSpreadsheet => !isFolder && _spreadsheetExts.contains(extension);
   bool get isPpt => !isFolder && _pptExts.contains(extension);
+  bool get isDatabase => !isFolder && _databaseExts.contains(extension);
 
   // ---------------- Thumbnail Generation ----------------
   // Dipakai explorer_ui (List & Grid View) buat nentuin item mana yang

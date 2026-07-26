@@ -67,6 +67,7 @@ import '../file_engine/file_engine.dart';
 import '../media_viewer/image_viewer_screen.dart';
 import '../media_viewer/video_viewer_screen.dart';
 import '../ppt_viewer/ppt_viewer_screen.dart';
+import '../db_viewer/db_viewer_screen.dart';
 import '../storage_overview/storage_overview_screen.dart';
 import '../task_queue/task.dart';
 import '../task_queue/task_queue.dart';
@@ -770,6 +771,14 @@ class ExplorerScreen extends ConsumerWidget {
       Navigator.push(
         context,
         MaterialPageRoute(builder: (_) => PptViewerScreen(path: item.path)),
+      );
+      return;
+    }
+
+    if (item.isDatabase) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => DbViewerScreen(path: item.path)),
       );
       return;
     }
