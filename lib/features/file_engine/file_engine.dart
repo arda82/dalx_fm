@@ -23,18 +23,20 @@ import '../../core/events/event_bus.dart';
 import '../../core/events/event_catalog.dart';
 import '../../core/models/file_item.dart';
 import '../../core/native_bridge/native_bridge.dart';
+import '../../core/settings/app_settings.dart';
 
 enum SortMode { name, dateNewest, dateOldest, size }
 
 class FileEngine {
   final DalXEventBus _eventBus;
   final NativeBridge _nativeBridge;
+  final PerFolderSortStore _perFolderSortStore;
   final List<String> _history = [];
 
   bool showHidden = false;
   SortMode sortMode = SortMode.name;
 
-  FileEngine(this._eventBus, this._nativeBridge);
+  FileEngine(this._eventBus, this._nativeBridge, this._perFolderSortStore);
 
   /// Path folder yang sedang dibuka. Null kalau belum pernah buka
   /// folder sama sekali.
@@ -49,11 +51,17 @@ class FileEngine {
   /// Buka folder di [path], baca isinya, dan pancarkan FolderOpened.
   /// Melempar exception kalau path bukan direktori atau tidak bisa
   /// dibaca (mis. permission belum diberikan).
+  ///
+  /// [sortMode] di-load per-path DI SINI (bukan 1 default global lagi)
+  /// — folder yang belum pernah di-set manual sortnya jatuh ke
+  /// fallback SortMode.name.
   Future<List<FileItem>> openFolder(String path) async {
     final dir = Directory(path);
     if (!await dir.exists()) {
       throw FileSystemException('Folder tidak ditemukan', path);
     }
+
+    sortMode = _sortModeFromString(await _perFolderSortStore.getSort(path));
 
     final items = await _listFolder(dir);
 
@@ -62,6 +70,34 @@ class FileEngine {
 
     return items;
   }
+
+  /// Dipanggil dari explorer_state.dart pas user ganti sort lewat menu
+  /// titik-tiga — persist KHUSUS buat [currentPath] (per-folder, bukan
+  /// global). [sortMode] field di-update SINKRON duluan (sebelum
+  /// bagian async-nya) supaya caller bisa langsung refresh() tanpa
+  /// perlu nunggu proses simpan ke SharedPreferences selesai.
+  Future<void> setSortModeForCurrentFolder(SortMode mode) async {
+    sortMode = mode;
+    final path = currentPath;
+    if (path != null) {
+      await _perFolderSortStore.setSort(path, _sortModeToString(mode));
+    }
+  }
+
+  static SortMode _sortModeFromString(String? s) {
+    switch (s) {
+      case 'dateNewest':
+        return SortMode.dateNewest;
+      case 'dateOldest':
+        return SortMode.dateOldest;
+      case 'size':
+        return SortMode.size;
+      default:
+        return SortMode.name;
+    }
+  }
+
+  static String _sortModeToString(SortMode mode) => mode.name;
 
   /// Kembali ke folder sebelumnya di history. Melempar StateError
   /// kalau tidak ada folder sebelumnya (cek [canGoBack] dulu).
@@ -316,5 +352,6 @@ class FileEngine {
 final fileEngineProvider = Provider.family<FileEngine, String>((ref, rootPath) {
   final eventBus = ref.watch(eventBusProvider);
   final nativeBridge = ref.watch(nativeBridgeProvider);
-  return FileEngine(eventBus, nativeBridge);
+  final perFolderSortStore = ref.watch(perFolderSortStoreProvider);
+  return FileEngine(eventBus, nativeBridge, perFolderSortStore);
 });

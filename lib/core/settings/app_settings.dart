@@ -5,6 +5,7 @@
 // Language, Explorer defaults (Default View/Sort/Hidden/Font Size/
 // Layar Awal), plus Root Mode yang sudah ada dari Fase 1.5.
 
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -14,7 +15,6 @@ const _rootModeKey = 'dalx_root_mode';
 const _themeModeKey = 'dalx_theme_mode';
 const _localeKey = 'dalx_locale';
 const _defaultViewKey = 'dalx_default_view'; // 'list' | 'grid'
-const _defaultSortKey = 'dalx_default_sort'; // 'name' | 'date' | 'size'
 const _defaultHiddenKey = 'dalx_default_hidden'; // bool
 const _fontScaleKey = 'dalx_font_scale'; // double
 const _homePathKey = 'dalx_home_path'; // String? (null = default Storage Overview)
@@ -122,29 +122,32 @@ final fontScaleProvider = StateNotifierProvider<FontScaleNotifier, double>((ref)
   return FontScaleNotifier();
 });
 
-// ---------------- Explorer Defaults (Default View/Sort/Hidden) ----------------
+// ---------------- Explorer Defaults (Default View/Hidden) ----------------
+//
+// CATATAN: defaultSort SENGAJA DICABUT dari sini (per keputusan
+// Damar) — sort mode sekarang PER-FOLDER (lihat PerFolderSortStore
+// di bawah & file_engine.dart), bukan 1 default global lagi. Kontrol
+// sort cuma lewat menu titik-tiga per layar Explorer, tidak ada lagi
+// di Settings.
 //
 // Primitif polos (String/bool) SENGAJA dipakai di sini, BUKAN
-// ViewMode/SortMode dari explorer_state.dart — core/ tidak boleh
-// depend ke features/ (arah dependency-nya kebalik, lihat
-// ARCHITECTURE.md bagian 3). explorer_state.dart yang menerjemahkan
-// primitif ini ke enum-nya sendiri saat inisialisasi.
+// ViewMode dari explorer_state.dart — core/ tidak boleh depend ke
+// features/ (arah dependency-nya kebalik, lihat ARCHITECTURE.md
+// bagian 3). explorer_state.dart yang menerjemahkan primitif ini ke
+// enum-nya sendiri saat inisialisasi.
 
 class ExplorerDefaults {
   final String defaultView; // 'list' | 'grid'
-  final String defaultSort; // 'name' | 'date' | 'size'
   final bool defaultHidden;
 
   const ExplorerDefaults({
     this.defaultView = 'list',
-    this.defaultSort = 'name',
     this.defaultHidden = false,
   });
 
-  ExplorerDefaults copyWith({String? defaultView, String? defaultSort, bool? defaultHidden}) {
+  ExplorerDefaults copyWith({String? defaultView, bool? defaultHidden}) {
     return ExplorerDefaults(
       defaultView: defaultView ?? this.defaultView,
-      defaultSort: defaultSort ?? this.defaultSort,
       defaultHidden: defaultHidden ?? this.defaultHidden,
     );
   }
@@ -159,7 +162,6 @@ class ExplorerDefaultsNotifier extends StateNotifier<ExplorerDefaults> {
     final prefs = await SharedPreferences.getInstance();
     state = ExplorerDefaults(
       defaultView: prefs.getString(_defaultViewKey) ?? 'list',
-      defaultSort: prefs.getString(_defaultSortKey) ?? 'name',
       defaultHidden: prefs.getBool(_defaultHiddenKey) ?? false,
     );
   }
@@ -168,12 +170,6 @@ class ExplorerDefaultsNotifier extends StateNotifier<ExplorerDefaults> {
     state = state.copyWith(defaultView: view);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_defaultViewKey, view);
-  }
-
-  Future<void> setDefaultSort(String sort) async {
-    state = state.copyWith(defaultSort: sort);
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_defaultSortKey, sort);
   }
 
   Future<void> setDefaultHidden(bool value) async {
@@ -186,6 +182,55 @@ class ExplorerDefaultsNotifier extends StateNotifier<ExplorerDefaults> {
 final explorerDefaultsProvider = StateNotifierProvider<ExplorerDefaultsNotifier, ExplorerDefaults>((ref) {
   return ExplorerDefaultsNotifier();
 });
+
+// ---------------- Sort Mode PER-FOLDER (bukan global lagi) ----------------
+//
+// Ganti dari "1 default sort buat semua folder" jadi "tiap folder
+// inget sort-nya sendiri" — /storage/emulated/0/ bisa Name, Download
+// bisa Date-terbaru, dst, independen satu sama lain. Disimpan sebagai
+// JSON Map<String path, String sortMode> di SharedPreferences, di
+// bawah 1 key. File biasa (bukan Map besar) jadi tidak perlu batasi
+// jumlah folder yang diingat — realistis nggak akan membengkak
+// berarti (paling banter beberapa ratus folder yang pernah dibuka
+// user, tiap entry cuma path+1 kata).
+//
+// TIDAK dibuat sebagai StateNotifier/Provider reaktif — dipakai
+// sekali baca/tulis dari FileEngine tiap pindah folder, bukan sesuatu
+// yang perlu men-trigger rebuild widget manapun secara langsung.
+
+const _perFolderSortKey = 'dalx_per_folder_sort';
+
+class PerFolderSortStore {
+  Future<String?> getSort(String path) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_perFolderSortKey);
+    if (raw == null) return null;
+    try {
+      final map = jsonDecode(raw) as Map<String, dynamic>;
+      return map[path] as String?;
+    } catch (_) {
+      // JSON korup/format lama — abaikan, treat kayak belum ada data.
+      return null;
+    }
+  }
+
+  Future<void> setSort(String path, String sortMode) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_perFolderSortKey);
+    Map<String, dynamic> map = {};
+    if (raw != null) {
+      try {
+        map = jsonDecode(raw) as Map<String, dynamic>;
+      } catch (_) {
+        map = {};
+      }
+    }
+    map[path] = sortMode;
+    await prefs.setString(_perFolderSortKey, jsonEncode(map));
+  }
+}
+
+final perFolderSortStoreProvider = Provider<PerFolderSortStore>((ref) => PerFolderSortStore());
 
 // ---------------- Layar Awal (Home Path) ----------------
 //

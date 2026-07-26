@@ -72,7 +72,6 @@ class ExplorerState {
 class ExplorerNotifier extends StateNotifier<ExplorerState> {
   final FileEngine _fileEngine;
   final TaskQueue _taskQueue;
-  final ExplorerDefaultsNotifier _explorerDefaultsNotifier;
 
   // Dipakai untuk Cut-Paste: menyimpan path yang di-"cut" sampai user
   // paste di folder lain. Null berarti tidak ada operasi cut aktif.
@@ -84,11 +83,16 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
     this._taskQueue,
     DalXEventBus eventBus,
     ExplorerDefaults defaults,
-    this._explorerDefaultsNotifier,
   ) : super(ExplorerState(
           viewMode: defaults.defaultView == 'grid' ? ViewMode.grid : ViewMode.list,
-          sortMode: _sortModeFromString(defaults.defaultSort),
           showHidden: defaults.defaultHidden,
+          // sortMode SENGAJA tidak di-seed dari defaults di sini lagi
+          // (per-folder sekarang, bukan default global — lihat
+          // file_engine.dart PerFolderSortStore). Nilai sortMode yang
+          // BENAR baru didapat begitu openFolder() pertama kali
+          // selesai (lihat method openFolder di bawah, sync dari
+          // _fileEngine.sortMode). SortMode.name di sini cuma
+          // placeholder sesaat sebelum itu.
         )) {
     // FileEngine juga perlu tau default sort/hidden dari awal, biar
     // openFolder() pertama kali langsung konsisten sama state di atas
@@ -120,38 +124,6 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
     });
   }
 
-  static SortMode _sortModeFromString(String s) {
-    switch (s) {
-      case 'date':
-        return SortMode.dateNewest;
-      case 'size':
-        return SortMode.size;
-      default:
-        return SortMode.name;
-    }
-  }
-
-  /// Kebalikan [_sortModeFromString] — dipakai [setSortMode] buat
-  /// nulis balik pilihan user ke SharedPreferences (lihat
-  /// ExplorerDefaultsNotifier.setDefaultSort), supaya sort mode yang
-  /// dipilih user PERSIST jadi default beneran, bukan cuma nempel di
-  /// sesi Explorer yang lagi berjalan. `dateOldest` SENGAJA dipetakan
-  /// ke string 'date' yang sama kayak `dateNewest` — ExplorerDefaults
-  /// primitif cuma tau 3 kategori (name/date/size, lihat
-  /// app_settings.dart), arah baru/lama dalam kategori 'date' bukan
-  /// bagian dari "default" yang di-persist, cukup kategorinya.
-  static String _sortModeToString(SortMode mode) {
-    switch (mode) {
-      case SortMode.dateNewest:
-      case SortMode.dateOldest:
-        return 'date';
-      case SortMode.size:
-        return 'size';
-      case SortMode.name:
-        return 'name';
-    }
-  }
-
   bool get canGoBack => _fileEngine.canGoBack;
   bool get atFilesystemRoot => _fileEngine.atFilesystemRoot;
   bool get hasCutPaths => _cutPaths != null && _cutPaths!.isNotEmpty;
@@ -161,7 +133,11 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
     state = state.copyWith(isLoading: true, errorMessage: null, selectedPaths: {});
     try {
       final items = await _fileEngine.openFolder(path);
-      state = state.copyWith(currentPath: path, items: items, isLoading: false);
+      // sortMode disinkron dari _fileEngine SETELAH openFolder selesai
+      // — di dalamnya sudah di-load per-folder (lihat file_engine.dart
+      // PerFolderSortStore), jadi tiga-titik menu Explorer nampilin
+      // sort yang BENAR buat folder ini, bukan sort folder sebelumnya.
+      state = state.copyWith(currentPath: path, items: items, isLoading: false, sortMode: _fileEngine.sortMode);
     } catch (e) {
       state = state.copyWith(isLoading: false, errorMessage: e.toString());
     }
@@ -172,7 +148,12 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
     state = state.copyWith(isLoading: true, errorMessage: null, selectedPaths: {});
     try {
       final items = await _fileEngine.goBack();
-      state = state.copyWith(currentPath: _fileEngine.currentPath, items: items, isLoading: false);
+      state = state.copyWith(
+        currentPath: _fileEngine.currentPath,
+        items: items,
+        isLoading: false,
+        sortMode: _fileEngine.sortMode,
+      );
     } catch (e) {
       state = state.copyWith(isLoading: false, errorMessage: e.toString());
     }
@@ -185,7 +166,12 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
     state = state.copyWith(isLoading: true, errorMessage: null, selectedPaths: {});
     try {
       final items = await _fileEngine.goToParent();
-      state = state.copyWith(currentPath: _fileEngine.currentPath, items: items, isLoading: false);
+      state = state.copyWith(
+        currentPath: _fileEngine.currentPath,
+        items: items,
+        isLoading: false,
+        sortMode: _fileEngine.sortMode,
+      );
     } catch (e) {
       state = state.copyWith(isLoading: false, errorMessage: e.toString());
     }
@@ -400,15 +386,14 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
   }
 
   void setSortMode(SortMode mode) {
-    _fileEngine.sortMode = mode;
+    // sortMode field FileEngine di-update SINKRON di dalam method ini
+    // (sebelum bagian async-nya) — lihat file_engine.dart, jadi aman
+    // langsung refresh() tanpa nunggu proses simpan ke
+    // SharedPreferences selesai. Persist-nya per-folder (currentPath),
+    // BUKAN default global lagi — sesuai keputusan Damar.
+    _fileEngine.setSortModeForCurrentFolder(mode);
     state = state.copyWith(sortMode: mode);
     refresh();
-    // Persist ke SharedPreferences (lewat ExplorerDefaultsNotifier)
-    // — sebelumnya cuma diubah di state Riverpod sesi berjalan, jadi
-    // balik ke default lama tiap app di-restart. Fire-and-forget
-    // (tidak di-await) karena UI Explorer tidak perlu nunggu proses
-    // simpan selesai buat langsung kelihatan responsif.
-    _explorerDefaultsNotifier.setDefaultSort(_sortModeToString(mode));
   }
 
   /// Toggle List View <-> Grid View (Fase 2 — Explorer Polish).
@@ -447,7 +432,6 @@ final explorerProvider = StateNotifierProvider.family<ExplorerNotifier, Explorer
     // .watch, ganti default akan ke-reset Explorer yang lagi dibuka
     // user tanpa diminta).
     final defaults = ref.read(explorerDefaultsProvider);
-    final explorerDefaultsNotifier = ref.read(explorerDefaultsProvider.notifier);
-    return ExplorerNotifier(fileEngine, taskQueue, eventBus, defaults, explorerDefaultsNotifier);
+    return ExplorerNotifier(fileEngine, taskQueue, eventBus, defaults);
   },
 );

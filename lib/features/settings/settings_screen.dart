@@ -54,12 +54,6 @@ class SettingsScreen extends ConsumerWidget {
             subtitle: Text(explorerDefaults.defaultView == 'grid' ? strings.gridView : strings.listView),
             onTap: () => _showDefaultViewSheet(context, ref, strings, explorerDefaults.defaultView),
           ),
-          ListTile(
-            leading: const Icon(Icons.sort_outlined),
-            title: Text(strings.settingsDefaultSort),
-            subtitle: Text(_sortLabel(strings, explorerDefaults.defaultSort)),
-            onTap: () => _showDefaultSortSheet(context, ref, strings, explorerDefaults.defaultSort),
-          ),
           SwitchListTile(
             secondary: const Icon(Icons.visibility_off_outlined),
             title: Text(strings.settingsHiddenDefault),
@@ -117,17 +111,6 @@ class SettingsScreen extends ConsumerWidget {
         return s.settingsThemeLight;
       case ThemeMode.system:
         return s.settingsThemeSystem;
-    }
-  }
-
-  String _sortLabel(AppStrings s, String sort) {
-    switch (sort) {
-      case 'date':
-        return s.sortByDate;
-      case 'size':
-        return s.sortBySize;
-      default:
-        return s.sortByName;
     }
   }
 
@@ -224,43 +207,6 @@ class SettingsScreen extends ConsumerWidget {
               selected: current == 'grid',
               onTap: () {
                 ref.read(explorerDefaultsProvider.notifier).setDefaultView('grid');
-                Navigator.pop(context);
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showDefaultSortSheet(BuildContext context, WidgetRef ref, AppStrings s, String current) {
-    showDialog(
-      context: context,
-      builder: (context) => Dialog(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _RadioTile(
-              label: s.sortByName,
-              selected: current == 'name',
-              onTap: () {
-                ref.read(explorerDefaultsProvider.notifier).setDefaultSort('name');
-                Navigator.pop(context);
-              },
-            ),
-            _RadioTile(
-              label: s.sortByDate,
-              selected: current == 'date',
-              onTap: () {
-                ref.read(explorerDefaultsProvider.notifier).setDefaultSort('date');
-                Navigator.pop(context);
-              },
-            ),
-            _RadioTile(
-              label: s.sortBySize,
-              selected: current == 'size',
-              onTap: () {
-                ref.read(explorerDefaultsProvider.notifier).setDefaultSort('size');
                 Navigator.pop(context);
               },
             ),
