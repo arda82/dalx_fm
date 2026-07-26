@@ -23,6 +23,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/events/event_bus.dart';
 import '../../core/models/file_item.dart';
 import '../../core/native_bridge/native_bridge.dart';
+import '../../core/settings/app_settings.dart';
 import '../file_engine/file_engine.dart';
 import 'explorer_screen.dart' show dalxAccent;
 
@@ -37,12 +38,13 @@ Future<String?> showFolderPicker(
 }) {
   final eventBus = ref.read(eventBusProvider);
   final nativeBridge = ref.read(nativeBridgeProvider);
+  final perFolderSortStore = ref.read(perFolderSortStoreProvider);
   return Navigator.of(context).push<String>(
     MaterialPageRoute(
       builder: (_) => FolderPickerScreen(
         initialPath: initialPath,
         title: title,
-        fileEngine: FileEngine(eventBus, nativeBridge),
+        fileEngine: FileEngine(eventBus, nativeBridge, perFolderSortStore),
       ),
     ),
   );
