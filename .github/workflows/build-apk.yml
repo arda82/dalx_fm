@@ -37,18 +37,6 @@ jobs:
       - name: Ambil dependency
         run: flutter pub get
 
-      # STEP DIAGNOSTIK SEMENTARA — buat investigasi error "Unresolved
-      # reference PDFBoxResourceLoader" yang muncul di step Build APK.
-      # Nunjukin persis apakah com.tom-roush:pdfbox-android ke-resolve
-      # Gradle atau nggak, SEBELUM proses compile Kotlin jalan. Hapus
-      # step ini lagi begitu akar masalahnya ketemu & fixed.
-      - name: "[DIAGNOSTIK] Cek dependency tree pdfbox-android"
-        run: |
-          cd android
-          chmod +x gradlew
-          ./gradlew :app:dependencies --configuration releaseRuntimeClasspath | grep -A 2 -B 2 -i "pdfbox\|tom-roush" || echo "=== PDFBOX-ANDROID TIDAK KETEMU DI DEPENDENCY TREE ==="
-        continue-on-error: true
-
       # Versi APK ikut nomor run GitHub Actions, biar tiap build
       # punya versionCode unik tanpa perlu diketik manual tiap kali.
       # Skema: 0.0.<run_number> — sesuaikan kalau nanti pindah ke
@@ -87,8 +75,13 @@ jobs:
       # Flutter — SENGAJA bukan lewat splits{} manual di build.gradle,
       # karena itu konflik sama abiFilters otomatis Flutter Gradle
       # Plugin versi baru (lihat catatan di build.gradle).
+      # STEP DIAGNOSTIK SEMENTARA: --verbose ditambah buat investigasi
+      # error "Unresolved reference PDFBoxResourceLoader" — biar keliatan
+      # detail resolusi dependency Gradle di log. Cabut --verbose ini
+      # lagi begitu akar masalahnya ketemu & fixed (log jadi lebih
+      # berisik dari biasanya selama diagnostik ini aktif).
       - name: Build APK (release, split per ABI)
-        run: flutter build apk --release --split-per-abi
+        run: flutter build apk --release --split-per-abi --verbose
 
       # Hasil --split-per-abi ada 3 file: app-armeabi-v7a-release.apk,
       # app-arm64-v8a-release.apk, app-x86_64-release.apk. Upload
