@@ -68,6 +68,7 @@ import '../media_viewer/image_viewer_screen.dart';
 import '../media_viewer/video_viewer_screen.dart';
 import '../ppt_viewer/ppt_viewer_screen.dart';
 import '../db_viewer/db_viewer_screen.dart';
+import '../archive/zip_explorer_screen.dart';
 import '../storage_overview/storage_overview_screen.dart';
 import '../task_queue/task.dart';
 import '../task_queue/task_queue.dart';
@@ -839,11 +840,18 @@ class ExplorerScreen extends ConsumerWidget {
       return;
     }
 
+    if (item.isArchive && item.extension.toLowerCase() == 'zip') {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => ZipExplorerScreen(path: item.path)),
+      );
+      return;
+    }
+
     if (item.isArchive) {
-      // CATATAN: ZIP akan dipisah dari sini begitu "virtual browsing"
-      // (buka isi ZIP langsung kayak folder, tanpa extract dulu) jadi
-      // fitur terpisah — untuk sekarang semua format archive (termasuk
-      // ZIP) masih lewat dialog generik ini dulu.
+      // Format archive selain ZIP (7z/RAR/tar/dst) — virtual browsing
+      // cuma dibikin buat ZIP (lihat diskusi scope), sisanya tetap
+      // lewat dialog Extract/Buka-dengan-aplikasi-lain ini.
       await _showArchiveTapDialog(context, ref, item);
       return;
     }

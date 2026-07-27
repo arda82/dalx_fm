@@ -490,6 +490,95 @@ class TaskQueue extends StateNotifier<List<DalXTask>> {
     }
   }
 
+  // ---------------- Copy/Cut dari ZipExplorerScreen (Virtual Browsing) ----------------
+
+  /// Extract HANYA entry tertentu (file/folder terpilih user lewat
+  /// Copy/Cut di ZipExplorerScreen) dari [zipPath] ke [destinationDir]
+  /// — BUKAN extract seluruh isi arsip (itu tetap lewat [extract]
+  /// biasa). Reuse [TaskType.extract] yang sudah ada (bukan enum
+  /// baru) — secara konsep ini tetap "mengekstrak dari arsip", cuma
+  /// sebagian bukan semua.
+  ///
+  /// [entryFullPaths] adalah path lengkap DI DALAM zip (dipisah '/'),
+  /// boleh file atau folder — kalau folder, SEMUA file di dalamnya
+  /// (rekursif) ikut ke-extract, dengan struktur folder itu sendiri
+  /// dipertahankan sebagai folder baru di [destinationDir] (bukan
+  /// isinya "tumpah" rata di destinationDir).
+  Future<void> extractZipEntries(
+    String zipPath,
+    List<String> entryFullPaths,
+    String destinationDir,
+  ) async {
+    final task = DalXTask(
+      id: _newTaskId(),
+      type: TaskType.extract,
+      sourcePaths: [zipPath],
+      destinationPath: destinationDir,
+    );
+    _addTask(task);
+    _updateTask(task.id, (t) => t.copyWith(status: TaskStatus.running));
+
+    try {
+      final bytes = await File(zipPath).readAsBytes();
+      final archive = ZipDecoder().decodeBytes(bytes);
+
+      // Kumpulin dulu semua file (bukan folder marker) yang match
+      // salah satu entryFullPaths (persis ATAU descendant-nya kalau
+      // itu folder) — biar tau total buat hitung progress duluan.
+      final matches = <MapEntry<String, ArchiveFile>>[];
+      for (final entryFullPath in entryFullPaths) {
+        final segments = entryFullPath.split('/');
+        final parentPrefix = segments.length > 1 ? '${segments.sublist(0, segments.length - 1).join('/')}/' : '';
+        for (final file in archive.files) {
+          if (!file.isFile) continue;
+          final name = file.name.replaceAll('\\', '/');
+          final isSelf = name == entryFullPath;
+          final isDescendant = name.startsWith('$entryFullPath/');
+          if (!isSelf && !isDescendant) continue;
+          // Substring dari parentPrefix biar nama folder yang dipilih
+          // TETAP jadi segmen pertama di destination (bukan "tumpah"
+          // rata) — mis. pilih folder "docs/notes" -> hasil di
+          // destination jadi "notes/isi-di-dalamnya", bukan langsung
+          // "isi-di-dalamnya" tumpah di destinationDir.
+          final relativePath = name.substring(parentPrefix.length);
+          matches.add(MapEntry(relativePath, file));
+        }
+      }
+
+      final total = matches.isEmpty ? 1 : matches.length;
+      for (var i = 0; i < matches.length; i++) {
+        if (_cancelFlags[task.id] == true) break;
+        await _waitIfPaused(task.id);
+
+        final relativePath = matches[i].key;
+        final file = matches[i].value;
+        final outFile = File('$destinationDir${Platform.pathSeparator}$relativePath');
+        await outFile.create(recursive: true);
+        await outFile.writeAsBytes(file.content as List<int>);
+
+        final progress = (i + 1) / total;
+        _updateTask(task.id, (t) => t.copyWith(progress: progress));
+        _eventBus.fire(TaskProgress(task.id, progress));
+      }
+
+      if (_cancelFlags[task.id] == true) {
+        _eventBus.fire(TaskCompleted(task.id, success: false, errorMessage: 'Dibatalkan'));
+        return;
+      }
+
+      _updateTask(task.id, (t) => t.copyWith(status: TaskStatus.completed, progress: 1.0));
+      _eventBus.fire(FileCreated(destinationDir, isFolder: true));
+      _eventBus.fire(TaskCompleted(task.id, success: true));
+    } catch (e) {
+      debugPrint('Task extractZipEntries gagal: $e');
+      _updateTask(task.id, (t) => t.copyWith(status: TaskStatus.failed, errorMessage: e.toString()));
+      _eventBus.fire(TaskCompleted(task.id, success: false, errorMessage: e.toString()));
+    } finally {
+      _cancelFlags.remove(task.id);
+      _pauseFlags.remove(task.id);
+    }
+  }
+
   /// Extract tar/tar.gz — PURE DART (package:archive), BUKAN native.
   /// archive package sudah cukup buat format ini (TarDecoder +
   /// GZipDecoder), jadi tidak perlu Commons Compress sama sekali

@@ -15,6 +15,7 @@ import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/events/event_bus.dart';
 import '../../core/events/event_catalog.dart';
+import '../../core/clipboard/zip_clipboard.dart';
 import '../../core/models/file_item.dart';
 import '../../core/settings/app_settings.dart';
 import '../file_engine/file_engine.dart';
@@ -72,6 +73,7 @@ class ExplorerState {
 class ExplorerNotifier extends StateNotifier<ExplorerState> {
   final FileEngine _fileEngine;
   final TaskQueue _taskQueue;
+  final ZipClipboardNotifier _zipClipboardNotifier;
 
   // Dipakai untuk Cut-Paste: menyimpan path yang di-"cut" sampai user
   // paste di folder lain. Null berarti tidak ada operasi cut aktif.
@@ -83,6 +85,7 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
     this._taskQueue,
     DalXEventBus eventBus,
     ExplorerDefaults defaults,
+    this._zipClipboardNotifier,
   ) : super(ExplorerState(
           viewMode: defaults.defaultView == 'grid' ? ViewMode.grid : ViewMode.list,
           showHidden: defaults.defaultHidden,
@@ -127,7 +130,8 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
   bool get canGoBack => _fileEngine.canGoBack;
   bool get atFilesystemRoot => _fileEngine.atFilesystemRoot;
   bool get hasCutPaths => _cutPaths != null && _cutPaths!.isNotEmpty;
-  bool get hasPendingPaste => hasCutPaths || (_pendingCopyPaths?.isNotEmpty ?? false);
+  bool get hasPendingPaste =>
+      hasCutPaths || (_pendingCopyPaths?.isNotEmpty ?? false) || _zipClipboardNotifier.state != null;
 
   Future<void> openFolder(String path) async {
     state = state.copyWith(isLoading: true, errorMessage: null, selectedPaths: {});
@@ -274,6 +278,7 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
   void copySelected() {
     _cutPaths = null; // pastikan bukan mode cut
     _pendingCopyPaths = state.selectedPaths.toList();
+    _zipClipboardNotifier.clear(); // cuma 1 jenis clipboard aktif dalam satu waktu
     state = state.copyWith(selectedPaths: {});
   }
 
@@ -282,6 +287,7 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
   void cutSelected() {
     _pendingCopyPaths = null;
     _cutPaths = state.selectedPaths.toList();
+    _zipClipboardNotifier.clear();
     state = state.copyWith(selectedPaths: {});
   }
 
@@ -291,6 +297,7 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
   void cancelPendingPaste() {
     _cutPaths = null;
     _pendingCopyPaths = null;
+    _zipClipboardNotifier.clear();
     state = state.copyWith(); // trigger rebuild (field ini di luar ExplorerState)
   }
 
@@ -301,12 +308,18 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
   /// (kosong berarti aman, langsung paste tanpa dialog).
   Future<List<String>> checkPasteConflicts() async {
     final destination = state.currentPath;
-    final paths = _cutPaths ?? _pendingCopyPaths;
-    if (destination == null || paths == null || paths.isEmpty) return [];
+    if (destination == null) return [];
+
+    final zipClip = _zipClipboardNotifier.state;
+    final paths = zipClip?.entryPaths ?? _cutPaths ?? _pendingCopyPaths;
+    if (paths == null || paths.isEmpty) return [];
 
     final conflicts = <String>[];
     for (final path in paths) {
-      final name = path.split(Platform.pathSeparator).last;
+      // Path dari zip clipboard pakai '/' (delimiter internal ZIP,
+      // bukan Platform.pathSeparator) — split by '/' aman buat
+      // dua-duanya karena Platform.pathSeparator di Android juga '/'.
+      final name = path.split('/').last;
       final destPath = '$destination${Platform.pathSeparator}$name';
       if (await File(destPath).exists() || await Directory(destPath).exists()) {
         conflicts.add(name);
@@ -319,9 +332,22 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
   /// sedang dibuka. [strategy] dipakai kalau ada nama yang bentrok —
   /// default renameAuto aman dipakai walau tidak ada konflik sama
   /// sekali (tidak berpengaruh kalau tidak ada bentrok).
+  ///
+  /// Zip clipboard (Copy/Cut dari ZipExplorerScreen) DICEK DULUAN —
+  /// dalam praktiknya cuma 1 jenis clipboard yang aktif di satu waktu
+  /// (lihat copySelected/cutSelected yang saling clear), jadi urutan
+  /// ini jarang berarti, tapi zip clipboard diprioritaskan kalau
+  /// keduanya somehow kebetulan terisi.
   Future<void> pasteHere({ConflictStrategy strategy = ConflictStrategy.renameAuto}) async {
     final destination = state.currentPath;
     if (destination == null) return;
+
+    final zipClip = _zipClipboardNotifier.state;
+    if (zipClip != null) {
+      _zipClipboardNotifier.clear();
+      await _taskQueue.extractZipEntries(zipClip.zipPath, zipClip.entryPaths, destination);
+      return;
+    }
 
     if (_cutPaths != null && _cutPaths!.isNotEmpty) {
       final paths = _cutPaths!;
@@ -432,6 +458,7 @@ final explorerProvider = StateNotifierProvider.family<ExplorerNotifier, Explorer
     // .watch, ganti default akan ke-reset Explorer yang lagi dibuka
     // user tanpa diminta).
     final defaults = ref.read(explorerDefaultsProvider);
-    return ExplorerNotifier(fileEngine, taskQueue, eventBus, defaults);
+    final zipClipboardNotifier = ref.read(zipClipboardProvider.notifier);
+    return ExplorerNotifier(fileEngine, taskQueue, eventBus, defaults, zipClipboardNotifier);
   },
 );
