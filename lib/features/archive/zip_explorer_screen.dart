@@ -24,7 +24,10 @@ import 'dart:io';
 import 'package:archive/archive.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
 import '../../core/clipboard/zip_clipboard.dart';
+import '../../core/localization/app_strings.dart';
+import '../../core/native_bridge/native_bridge.dart';
 import '../task_queue/task_queue.dart';
 
 const _dalxAccent = Color(0xFF0A84FF);
@@ -56,6 +59,7 @@ class ZipExplorerScreen extends ConsumerStatefulWidget {
 class _ZipExplorerScreenState extends ConsumerState<ZipExplorerScreen> {
   bool _loading = true;
   String? _error;
+  Archive? _archive;
   // Key = "virtual directory path" ('' untuk root), value = daftar
   // anak langsung di level itu (folder & file bercampur, folder
   // duluan biar konsisten sama urutan List View Explorer asli).
@@ -75,6 +79,7 @@ class _ZipExplorerScreenState extends ConsumerState<ZipExplorerScreen> {
       final archive = ZipDecoder().decodeBytes(bytes);
       final tree = _buildTree(archive);
       setState(() {
+        _archive = archive;
         _tree = tree;
         _loading = false;
       });
@@ -189,12 +194,66 @@ class _ZipExplorerScreenState extends ConsumerState<ZipExplorerScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('ZIP di dalam ZIP belum didukung')),
       );
+    } else if (node.name.toLowerCase().endsWith('.apk')) {
+      // APK sering dibagiin dalam bentuk ZIP — kecualikan dari aturan
+      // "tap file = no-op", biar bisa langsung install tanpa extract
+      // manual dulu (murah: cuma 1 file, bukan seluruh isi ZIP).
+      _installApkFromZip(node);
     }
-    // Tap file biasa waktu TIDAK selecting: sengaja tidak ngapa-ngapain.
+    // Tap file biasa (bukan .zip/.apk) waktu TIDAK selecting: sengaja
+    // tidak ngapa-ngapain, sesuai scope v1.
   }
 
   void _onLongPressEntry(_ZipEntryNode node) {
     setState(() => _selectedPaths.add(node.fullPath));
+  }
+
+  /// Extract 1 file APK ini doang ke cache dir (BUKAN seluruh isi
+  /// ZIP), baru lempar ke installer sistem — sama alur cek izin
+  /// kayak tap .apk di Explorer biasa. File hasil extract sementara
+  /// ini otomatis ikut kesapu "Bersihkan Cache" (sama-sama di cache
+  /// dir app).
+  Future<void> _installApkFromZip(_ZipEntryNode node) async {
+    final nativeBridge = ref.read(nativeBridgeProvider);
+    final canInstall = await nativeBridge.canInstallPackages();
+    if (!canInstall) {
+      if (!mounted) return;
+      final strings = AppStrings.of(context);
+      final proceed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(strings.installPermissionTitle),
+          content: Text(strings.installPermissionBody),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: Text(strings.cancel)),
+            TextButton(onPressed: () => Navigator.pop(context, true), child: Text(strings.openSettingsButton)),
+          ],
+        ),
+      );
+      if (proceed == true) await nativeBridge.requestInstallPermission();
+      return;
+    }
+
+    final archive = _archive;
+    if (archive == null) return;
+    final entry = archive.files.firstWhere(
+      (f) => f.name.replaceAll('\\', '/') == node.fullPath,
+      orElse: () => throw StateError('Entry tidak ketemu di archive'),
+    );
+
+    try {
+      final tempDir = await getTemporaryDirectory();
+      final installDir = Directory('${tempDir.path}/apk_install');
+      await installDir.create(recursive: true);
+      final tempApkPath = '${installDir.path}/${node.name}';
+      await File(tempApkPath).writeAsBytes(entry.content as List<int>);
+      await nativeBridge.installApk(tempApkPath);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Gagal extract APK: $e')),
+      );
+    }
   }
 
   void _copySelected({required bool isCut}) {
