@@ -73,6 +73,7 @@ class AppStrings {
   String get openWith => _t('Open With', 'Open With');
   String get compress => _t('Compress', 'Compress');
   String get extract => _t('Extract', 'Extract');
+  String get openWithOtherApp => _t('Buka dengan aplikasi lain', 'Open with other app');
   String get addToFavorites => _t('Tambah Favorit', 'Add to Favorites');
   String get removeFromFavorites => _t('Hapus Favorit', 'Remove from Favorites');
   String openWithFailed(String error) => _t('Gagal membuka Open With: $error', 'Failed to open With: $error');

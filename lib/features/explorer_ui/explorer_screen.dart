@@ -391,6 +391,54 @@ class ExplorerScreen extends ConsumerWidget {
     }
   }
 
+  // ---------------- Tap Archive: Extract vs Buka Dengan Aplikasi Lain ----------------
+
+  /// Dialog yang muncul pas tap file archive (ZIP/7z/RAR/tar) — dua
+  /// opsi: Extract (pakai alur DalX yang sudah ada, sama kayak lewat
+  /// menu titik-tiga) atau "Buka dengan aplikasi lain" (system chooser
+  /// Android ASLI, BUKAN daftar aplikasi versi DalX sendiri — biar
+  /// urutan/rekomendasi aplikasinya persis kayak yang OS kasih,
+  /// bukan ditebak-tebak DalX).
+  Future<void> _showArchiveTapDialog(BuildContext context, WidgetRef ref, FileItem item) async {
+    final strings = AppStrings.of(context);
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: Text(item.name, overflow: TextOverflow.ellipsis),
+        children: [
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(context, 'extract'),
+            child: Row(
+              children: [
+                const Icon(Icons.unarchive_outlined, color: dalxAccent),
+                const SizedBox(width: 14),
+                Text(strings.extract),
+              ],
+            ),
+          ),
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(context, 'open_with'),
+            child: Row(
+              children: [
+                const Icon(Icons.open_in_new, color: dalxAccent),
+                const SizedBox(width: 14),
+                Text(strings.openWithOtherApp),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (choice == 'extract') {
+      if (!context.mounted) return;
+      await _handleExtract(context, ref, item.path);
+    } else if (choice == 'open_with') {
+      final nativeBridge = ref.read(nativeBridgeProvider);
+      await nativeBridge.openWith(item.path, mimeType: NativeBridge.mimeTypeFor(item.path));
+    }
+  }
+
   // ---------------- Fase 5 & Fase 8 Pilar #2: Archive (Compress/Extract) ----------------
 
   /// Return `(nama file, format)` atau null kalau dibatalkan. Pakai
@@ -788,6 +836,15 @@ class ExplorerScreen extends ConsumerWidget {
         context,
         MaterialPageRoute(builder: (_) => CodeEditorScreen(path: item.path)),
       );
+      return;
+    }
+
+    if (item.isArchive) {
+      // CATATAN: ZIP akan dipisah dari sini begitu "virtual browsing"
+      // (buka isi ZIP langsung kayak folder, tanpa extract dulu) jadi
+      // fitur terpisah — untuk sekarang semua format archive (termasuk
+      // ZIP) masih lewat dialog generik ini dulu.
+      await _showArchiveTapDialog(context, ref, item);
       return;
     }
 
