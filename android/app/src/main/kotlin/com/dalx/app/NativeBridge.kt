@@ -6,6 +6,9 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.Drawable
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
@@ -97,6 +100,7 @@ class NativeBridge(private val activity: Activity) : MethodChannel.MethodCallHan
                         call.argument<String>("path")!!,
                         (call.argument<Number>("modifiedAtMillis") ?: 0).toLong(),
                         call.argument<Boolean>("isVideo") ?: false,
+                        call.argument<Boolean>("isApk") ?: false,
                         result
                     )
                 }
@@ -255,11 +259,12 @@ class NativeBridge(private val activity: Activity) : MethodChannel.MethodCallHan
         path: String,
         modifiedAtMillis: Long,
         isVideo: Boolean,
+        isApk: Boolean,
         result: MethodChannel.Result
     ) {
         Thread {
             val thumbPath = try {
-                generateThumbnail(path, modifiedAtMillis, isVideo)
+                generateThumbnail(path, modifiedAtMillis, isVideo, isApk)
             } catch (e: Exception) {
                 null
             }
@@ -280,13 +285,18 @@ class NativeBridge(private val activity: Activity) : MethodChannel.MethodCallHan
      * dari hash MD5 "path|modifiedAtMillis", jadi otomatis "invalid"
      * sendiri kalau file aslinya berubah (timestamp beda -> key beda
      * -> generate ulang), tanpa perlu tracking manual dari Dart.
+     *
+     * [isApk] (kekurangan yang ditemukan Damar): icon APK diambil dari
+     * APK itu sendiri (PackageManager.getApplicationIcon), BUKAN icon
+     * Android generik — sama persis cara app store/file manager lain
+     * nampilin preview APK sebelum di-install.
      */
-    private fun generateThumbnail(path: String, modifiedAtMillis: Long, isVideo: Boolean): String? {
+    private fun generateThumbnail(path: String, modifiedAtMillis: Long, isVideo: Boolean, isApk: Boolean = false): String? {
         val cacheKey = md5Hex("$path|$modifiedAtMillis")
         val cacheFile = File(thumbnailCacheDir, "$cacheKey.jpg")
         if (cacheFile.exists()) return cacheFile.absolutePath
 
-        val bitmap = (if (isVideo) decodeVideoFrame(path) else decodeSampledBitmap(path))
+        val bitmap = (if (isApk) decodeApkIcon(path) else if (isVideo) decodeVideoFrame(path) else decodeSampledBitmap(path))
             ?: return null
 
         try {
@@ -297,6 +307,40 @@ class NativeBridge(private val activity: Activity) : MethodChannel.MethodCallHan
             bitmap.recycle()
         }
         return cacheFile.absolutePath
+    }
+
+    /**
+     * Baca icon aplikasi dari file .apk yang BELUM di-install — trik
+     * standarnya: pinjam ApplicationInfo hasil parsing manifest APK
+     * (getPackageArchiveInfo), tapi paksa sourceDir/publicSourceDir-nya
+     * nunjuk ke file APK itu sendiri (defaultnya kosong buat APK yang
+     * belum ke-install), baru getApplicationIcon bisa nemu resource
+     * icon-nya dari dalam APK itu.
+     */
+    private fun decodeApkIcon(path: String): Bitmap? {
+        return try {
+            val pm = activity.packageManager
+            val packageInfo = pm.getPackageArchiveInfo(path, 0) ?: return null
+            val appInfo = packageInfo.applicationInfo ?: return null
+            appInfo.sourceDir = path
+            appInfo.publicSourceDir = path
+            val drawable = pm.getApplicationIcon(appInfo)
+            drawableToBitmap(drawable)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /** Konversi Drawable (termasuk AdaptiveIconDrawable, dsb) jadi Bitmap. */
+    private fun drawableToBitmap(drawable: Drawable): Bitmap {
+        if (drawable is BitmapDrawable && drawable.bitmap != null) return drawable.bitmap
+        val width = if (drawable.intrinsicWidth > 0) drawable.intrinsicWidth else THUMBNAIL_MAX_DIMENSION
+        val height = if (drawable.intrinsicHeight > 0) drawable.intrinsicHeight else THUMBNAIL_MAX_DIMENSION
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        drawable.setBounds(0, 0, canvas.width, canvas.height)
+        drawable.draw(canvas)
+        return bitmap
     }
 
     /** Ambil 1 frame dari video pakai MediaMetadataRetriever. */

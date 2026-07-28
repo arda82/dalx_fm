@@ -202,12 +202,14 @@ class NativeBridge {
     String path, {
     required int modifiedAtMillis,
     required bool isVideo,
+    bool isApk = false,
   }) async {
     try {
       return await _channel.invokeMethod<String>('generateThumbnail', {
         'path': path,
         'modifiedAtMillis': modifiedAtMillis,
         'isVideo': isVideo,
+        'isApk': isApk,
       });
     } on PlatformException {
       return null;

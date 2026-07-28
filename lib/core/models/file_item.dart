@@ -111,5 +111,5 @@ class FileItem {
   // layak diminta thumbnail asli ke native (core/native_bridge) —
   // cuma gambar & video, tipe lain tetap pakai icon generik.
 
-  bool get isThumbnailable => isImage || isVideo;
+  bool get isThumbnailable => isImage || isVideo || isApk;
 }

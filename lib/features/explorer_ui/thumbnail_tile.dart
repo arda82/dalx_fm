@@ -81,6 +81,7 @@ class DalxThumbnail extends ConsumerWidget {
             item.path,
             modifiedAtMillis: item.modifiedAt.millisecondsSinceEpoch,
             isVideo: item.isVideo,
+            isApk: item.isApk,
           ),
     );
 
