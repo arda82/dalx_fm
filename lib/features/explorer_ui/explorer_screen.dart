@@ -65,6 +65,7 @@ import '../doc_viewer/xlsx_editor_screen.dart';
 import '../favorites/favorites_service.dart';
 import '../file_engine/file_engine.dart';
 import '../media_viewer/image_viewer_screen.dart';
+import '../media_viewer/audio_player_screen.dart';
 import '../media_viewer/video_viewer_screen.dart';
 import '../ppt_viewer/ppt_viewer_screen.dart';
 import '../db_viewer/db_viewer_screen.dart';
@@ -800,6 +801,14 @@ class ExplorerScreen extends ConsumerWidget {
       return;
     }
 
+    if (item.isAudio) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => AudioPlayerScreen(path: item.path)),
+      );
+      return;
+    }
+
     if (item.isPdf) {
       Navigator.push(
         context,
@@ -1301,12 +1310,12 @@ class _FileListTile extends StatelessWidget {
                       height: 40,
                       child: DalxThumbnail(
                         item: item,
-                        fallback: Icon(_iconForExtension(item.extension), color: Colors.grey),
+                        fallback: Icon(_iconForFile(item), color: Colors.grey),
                       ),
                     ),
                   )
                 : Icon(
-                    item.isFolder ? Icons.folder : _iconForExtension(item.extension),
+                    item.isFolder ? Icons.folder : _iconForFile(item),
                     color: item.isFolder ? dalxAccent : Colors.grey,
                   )),
         title: Text(
@@ -1325,16 +1334,43 @@ class _FileListTile extends StatelessWidget {
     );
   }
 
-  IconData _iconForExtension(String ext) {
-    const imageExts = {'jpg', 'jpeg', 'png', 'gif', 'webp'};
-    const docExts = {'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'};
-    const archiveExts = {'zip', 'rar', '7z', 'tar', 'gz'};
-    const codeExts = {'dart', 'py', 'java', 'c', 'cpp', 'js', 'ts'};
+  /// Kekurangan yang ditemukan Damar: dulu banyak tipe file (mp3,
+  /// apk, db, txt, json, yaml, md, iml, dst) jatuh ke icon fallback
+  /// yang SAMA (Icons.insert_drive_file_outlined) — cuma image/doc/
+  /// archive/code(sempit) yang beda. Sekarang reuse getter FileItem
+  /// yang sudah ada (isImage/isVideo/isAudio/isPdf/dst, sudah dipakai
+  /// juga buat routing tap) supaya icon SELALU konsisten sama
+  /// perilaku tap-nya, tidak ada 2 sumber kebenaran yang bisa
+  /// ke-drift kayak sebelumnya (docExts di sini dulu beda daftar
+  /// sama _pdfExts/_spreadsheetExts di file_item.dart).
+  IconData _iconForFile(FileItem item) {
+    // Sub-kategori tambahan buat "code-ish" files yang secara
+    // PERILAKU semua buka di Code Editor (isCodeFile), tapi secara
+    // ICON dibedain lebih detail (biar txt/json/markdown kelihatan
+    // beda, bukan cuma "kode" generik semua).
+    const markdownExts = {'md', 'markdown'};
+    const dataConfigExts = {'json', 'yaml', 'yml', 'xml', 'gradle'};
+    const plainTextExts = {'txt', 'log', 'ini', 'cfg', 'properties', 'env'};
+    // Format lama/tidak didukung DalX tapi tetap lazim ditemuin user
+    // (Word .doc/.docx, Excel lama .xls, .csv) — dikasih icon yang
+    // masuk akal walau tap-nya tetap jatuh ke Open With biasa.
+    const wordExts = {'doc', 'docx'};
+    const legacySpreadsheetExts = {'xls', 'csv'};
 
-    if (imageExts.contains(ext)) return Icons.image_outlined;
-    if (docExts.contains(ext)) return Icons.description_outlined;
-    if (archiveExts.contains(ext)) return Icons.folder_zip_outlined;
-    if (codeExts.contains(ext)) return Icons.code;
+    if (item.isImage) return Icons.image_outlined;
+    if (item.isVideo) return Icons.movie_outlined;
+    if (item.isAudio) return Icons.audiotrack_outlined;
+    if (item.isApk) return Icons.android;
+    if (item.isPdf) return Icons.picture_as_pdf_outlined;
+    if (item.isSpreadsheet || legacySpreadsheetExts.contains(item.extension)) return Icons.grid_on_outlined;
+    if (item.isPpt) return Icons.slideshow_outlined;
+    if (item.isArchive) return Icons.folder_zip_outlined;
+    if (item.isDatabase) return Icons.storage_outlined;
+    if (wordExts.contains(item.extension)) return Icons.description_outlined;
+    if (markdownExts.contains(item.extension)) return Icons.article_outlined;
+    if (dataConfigExts.contains(item.extension)) return Icons.data_object_outlined;
+    if (plainTextExts.contains(item.extension)) return Icons.text_snippet_outlined;
+    if (item.isCodeFile) return Icons.code;
     return Icons.insert_drive_file_outlined;
   }
 
@@ -1396,13 +1432,13 @@ class _FileGridTile extends StatelessWidget {
                           child: DalxThumbnail(
                             item: item,
                             fallback: Center(
-                              child: Icon(_iconForExtension(item.extension), size: 52, color: Colors.grey),
+                              child: Icon(_iconForFile(item), size: 52, color: Colors.grey),
                             ),
                           ),
                         )
                       : Center(
                           child: Icon(
-                            item.isFolder ? Icons.folder : _iconForExtension(item.extension),
+                            item.isFolder ? Icons.folder : _iconForFile(item),
                             size: 52,
                             color: item.isFolder ? dalxAccent : Colors.grey,
                           ),
@@ -1443,16 +1479,32 @@ class _FileGridTile extends StatelessWidget {
     );
   }
 
-  IconData _iconForExtension(String ext) {
-    const imageExts = {'jpg', 'jpeg', 'png', 'gif', 'webp'};
-    const docExts = {'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'};
-    const archiveExts = {'zip', 'rar', '7z', 'tar', 'gz'};
-    const codeExts = {'dart', 'py', 'java', 'c', 'cpp', 'js', 'ts'};
+  /// Sama persis logic-nya sama _FileListTile._iconForFile — lihat
+  /// komentar lengkap di sana. Duplikasi kecil ini konsisten sama
+  /// pola yang sudah ada (2 private class beda buat List/Grid Tile,
+  /// masing-masing punya method sendiri) daripada dipaksa 1 fungsi
+  /// top-level bareng (butuh refactor lebih besar buat manfaat kecil).
+  IconData _iconForFile(FileItem item) {
+    const markdownExts = {'md', 'markdown'};
+    const dataConfigExts = {'json', 'yaml', 'yml', 'xml', 'gradle'};
+    const plainTextExts = {'txt', 'log', 'ini', 'cfg', 'properties', 'env'};
+    const wordExts = {'doc', 'docx'};
+    const legacySpreadsheetExts = {'xls', 'csv'};
 
-    if (imageExts.contains(ext)) return Icons.image_outlined;
-    if (docExts.contains(ext)) return Icons.description_outlined;
-    if (archiveExts.contains(ext)) return Icons.folder_zip_outlined;
-    if (codeExts.contains(ext)) return Icons.code;
+    if (item.isImage) return Icons.image_outlined;
+    if (item.isVideo) return Icons.movie_outlined;
+    if (item.isAudio) return Icons.audiotrack_outlined;
+    if (item.isApk) return Icons.android;
+    if (item.isPdf) return Icons.picture_as_pdf_outlined;
+    if (item.isSpreadsheet || legacySpreadsheetExts.contains(item.extension)) return Icons.grid_on_outlined;
+    if (item.isPpt) return Icons.slideshow_outlined;
+    if (item.isArchive) return Icons.folder_zip_outlined;
+    if (item.isDatabase) return Icons.storage_outlined;
+    if (wordExts.contains(item.extension)) return Icons.description_outlined;
+    if (markdownExts.contains(item.extension)) return Icons.article_outlined;
+    if (dataConfigExts.contains(item.extension)) return Icons.data_object_outlined;
+    if (plainTextExts.contains(item.extension)) return Icons.text_snippet_outlined;
+    if (item.isCodeFile) return Icons.code;
     return Icons.insert_drive_file_outlined;
   }
 }

@@ -40,9 +40,14 @@ class FileItem {
 
   static const _imageExts = {'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'};
   static const _videoExts = {'mp4', 'mkv', 'webm', '3gp', 'mov', 'avi'};
+  // Kekurangan yang ditemukan Damar: audio player belum ada sama
+  // sekali — dipakai explorer_ui buat tentuin tap file audio harus
+  // buka AudioPlayerScreen (just_audio), bukan lewat Open With biasa.
+  static const _audioExts = {'mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac', 'wma'};
 
   bool get isImage => !isFolder && _imageExts.contains(extension);
   bool get isVideo => !isFolder && _videoExts.contains(extension);
+  bool get isAudio => !isFolder && _audioExts.contains(extension);
 
   // ---------------- Fase 4: Code Editor ----------------
   // Dipakai explorer_ui untuk menentukan apakah tap file harus
@@ -95,6 +100,11 @@ class FileItem {
   bool get isSpreadsheet => !isFolder && _spreadsheetExts.contains(extension);
   bool get isPpt => !isFolder && _pptExts.contains(extension);
   bool get isDatabase => !isFolder && _databaseExts.contains(extension);
+  // Dipakai buat icon differensiasi (kekurangan yang ditemukan Damar)
+  // — deteksi install APK sendiri di explorer_screen.dart masih pakai
+  // endsWith('.apk') manual, tidak diubah supaya tidak nyenggol kode
+  // yang sudah jalan, getter ini murni tambahan buat kebutuhan baru.
+  bool get isApk => !isFolder && extension == 'apk';
 
   // ---------------- Thumbnail Generation ----------------
   // Dipakai explorer_ui (List & Grid View) buat nentuin item mana yang
