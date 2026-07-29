@@ -102,13 +102,13 @@ final localeProvider = StateNotifierProvider<LocaleNotifier, AppLocale>((ref) {
 // pengaturan skala teks seluruh app.
 
 class FontScaleNotifier extends StateNotifier<double> {
-  FontScaleNotifier() : super(1.0) {
+  FontScaleNotifier() : super(1.15) {
     _load();
   }
 
   Future<void> _load() async {
     final prefs = await SharedPreferences.getInstance();
-    state = prefs.getDouble(_fontScaleKey) ?? 1.0;
+    state = prefs.getDouble(_fontScaleKey) ?? 1.15;
   }
 
   Future<void> setFontScale(double scale) async {

@@ -179,17 +179,27 @@ class ExplorerScreen extends ConsumerWidget {
         drawer: pickMode ? null : const AppDrawer(),
         body: Column(
           children: [
-            if (!explorerState.isSelectMode || pickMode) _buildBreadcrumb(context, ref, explorerState, notifier),
-            if (!explorerState.isSelectMode || pickMode) const Divider(height: 1),
             Expanded(
               child: MediaQuery(
-                // Fase 7: Font Size — cuma bungkus daftar file, bukan
-                // seluruh Scaffold (AppBar/dialog tetap ukuran normal),
-                // sesuai desain "Font Size" di bawah section Explorer.
+                // Fase 7 + fix breadcrumb: breadcrumb SEKARANG ikut
+                // dibungkus di sini juga (dulu di luar, makanya gak
+                // ikut Settings > Font Size). AppBar/dialog tetap gak
+                // kena karena mereka di luar Column body ini sama
+                // sekali, sesuai desain awal "Font Size" cuma buat
+                // konten Explorer.
                 data: MediaQuery.of(context).copyWith(
                   textScaler: TextScaler.linear(ref.watch(fontScaleProvider)),
                 ),
-                child: _buildFileList(context, ref, explorerState, notifier),
+                child: Column(
+                  children: [
+                    if (!explorerState.isSelectMode || pickMode)
+                      _buildBreadcrumb(context, ref, explorerState, notifier),
+                    if (!explorerState.isSelectMode || pickMode) const Divider(height: 1),
+                    Expanded(
+                      child: _buildFileList(context, ref, explorerState, notifier),
+                    ),
+                  ],
+                ),
               ),
             ),
             if (!pickMode && notifier.hasPendingPaste)
@@ -1071,6 +1081,14 @@ class ExplorerScreen extends ConsumerWidget {
       color: dalxAccent,
       onRefresh: notifier.refresh,
       child: ListView.builder(
+        // Tanpa ini, jarak divider->item pertama cuma dapat
+        // top-padding SATU sisi dari _FileListTile (item pertama),
+        // sedangkan jarak antar item dapat DUA sisi (bottom-padding
+        // item atas + top-padding item bawah) -> jarak pertama
+        // kelihatan lebih mepet. Nilai ini approksimasi biar setara;
+        // kalau pas dicoba di device masih kurang/lebih, tinggal
+        // naik/turunin angkanya.
+        padding: const EdgeInsets.only(top: 8),
         itemCount: state.items.length,
         itemBuilder: (context, index) {
           final item = state.items[index];

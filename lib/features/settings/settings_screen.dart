@@ -115,9 +115,9 @@ class SettingsScreen extends ConsumerWidget {
   }
 
   String _fontScaleLabel(AppStrings s, double scale) {
-    if (scale <= 0.9) return s.settingsFontSizeSmall;
-    if (scale <= 1.05) return s.settingsFontSizeNormal;
-    if (scale <= 1.2) return s.settingsFontSizeLarge;
+    if (scale <= 1.075) return s.settingsFontSizeSmall;
+    if (scale <= 1.225) return s.settingsFontSizeNormal;
+    if (scale <= 1.375) return s.settingsFontSizeLarge;
     return s.settingsFontSizeExtraLarge;
   }
 
@@ -225,33 +225,33 @@ class SettingsScreen extends ConsumerWidget {
           children: [
             _RadioTile(
               label: s.settingsFontSizeSmall,
-              selected: current <= 0.9,
-              onTap: () {
-                ref.read(fontScaleProvider.notifier).setFontScale(0.85);
-                Navigator.pop(context);
-              },
-            ),
-            _RadioTile(
-              label: s.settingsFontSizeNormal,
-              selected: current > 0.9 && current <= 1.05,
+              selected: current <= 1.075,
               onTap: () {
                 ref.read(fontScaleProvider.notifier).setFontScale(1.0);
                 Navigator.pop(context);
               },
             ),
             _RadioTile(
-              label: s.settingsFontSizeLarge,
-              selected: current > 1.05 && current <= 1.2,
+              label: s.settingsFontSizeNormal,
+              selected: current > 1.075 && current <= 1.225,
               onTap: () {
                 ref.read(fontScaleProvider.notifier).setFontScale(1.15);
                 Navigator.pop(context);
               },
             ),
             _RadioTile(
-              label: s.settingsFontSizeExtraLarge,
-              selected: current > 1.2,
+              label: s.settingsFontSizeLarge,
+              selected: current > 1.225 && current <= 1.375,
               onTap: () {
                 ref.read(fontScaleProvider.notifier).setFontScale(1.3);
+                Navigator.pop(context);
+              },
+            ),
+            _RadioTile(
+              label: s.settingsFontSizeExtraLarge,
+              selected: current > 1.375,
+              onTap: () {
+                ref.read(fontScaleProvider.notifier).setFontScale(1.45);
                 Navigator.pop(context);
               },
             ),
