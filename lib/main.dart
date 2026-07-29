@@ -98,7 +98,7 @@ class DalXApp extends ConsumerWidget {
             onPrimary: Colors.white,
             secondary: dalxAccent,
             onSecondary: Colors.white,
-            surface: Color(0xFF161616),
+            surface: Color(0xFF1C1C1C),
             onSurface: Color(0xFFF2F2F2),
             surfaceContainerHighest: Color(0xFF232323),
             onSurfaceVariant: Color(0xFFC7C7C7),
@@ -124,7 +124,28 @@ class DalXApp extends ConsumerWidget {
       brightness: brightness,
       useMaterial3: true,
       colorScheme: colorScheme,
-      scaffoldBackgroundColor: isDark ? const Color(0xFF0F0F0F) : const Color(0xFFFAFAFA),
+      scaffoldBackgroundColor: isDark ? const Color(0xFF090909) : const Color(0xFFDFDFE6),
+      // Kontras background-vs-card dinaikkan (permintaan Damar, hasil
+      // mockup interaktif) — sebelumnya cuma beda beberapa poin RGB
+      // (nyaris nggak kelihatan di device asli), sekarang background
+      // digelapin/diterangin lebih jauh dari surface (card) DITAMBAH
+      // border tipis + shadow halus, biar batas card jelas tanpa perlu
+      // shadow tebal yang norak. Diterapkan lewat cardTheme di sini
+      // (bukan per-screen) supaya SEMUA Card() di seluruh app dapet
+      // treatment yang sama otomatis, konsisten.
+      cardTheme: CardThemeData(
+        elevation: isDark ? 2 : 1,
+        color: colorScheme.surface,
+        surfaceTintColor: Colors.transparent, // cegah M3 nge-tint warna card otomatis, kita pilih warna manual
+        shadowColor: isDark ? Colors.black.withOpacity(0.3) : Colors.black.withOpacity(0.06),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: BorderSide(
+            color: isDark ? Colors.white.withOpacity(0.12) : Colors.black.withOpacity(0.14),
+            width: 1.5,
+          ),
+        ),
+      ),
       fontFamily: 'Poppins',
       // Font default Poppins Regular (w400) kelihatan tipis di layar
       // kecil — dinaikkan ke w500 (Medium) buat body text & w600
