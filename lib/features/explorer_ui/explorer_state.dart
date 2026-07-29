@@ -16,6 +16,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/events/event_bus.dart';
 import '../../core/events/event_catalog.dart';
 import '../../core/clipboard/zip_clipboard.dart';
+import '../../core/clipboard/file_clipboard.dart';
 import '../../core/models/file_item.dart';
 import '../../core/settings/app_settings.dart';
 import '../file_engine/file_engine.dart';
@@ -75,10 +76,7 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
   final TaskQueue _taskQueue;
   final ZipClipboardNotifier _zipClipboardNotifier;
 
-  // Dipakai untuk Cut-Paste: menyimpan path yang di-"cut" sampai user
-  // paste di folder lain. Null berarti tidak ada operasi cut aktif.
-  List<String>? _cutPaths;
-  List<String>? _pendingCopyPaths;
+  final FileClipboardNotifier _fileClipboardNotifier;
 
   ExplorerNotifier(
     this._fileEngine,
@@ -86,6 +84,7 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
     DalXEventBus eventBus,
     ExplorerDefaults defaults,
     this._zipClipboardNotifier,
+    this._fileClipboardNotifier,
   ) : super(ExplorerState(
           viewMode: defaults.defaultView == 'grid' ? ViewMode.grid : ViewMode.list,
           showHidden: defaults.defaultHidden,
@@ -129,9 +128,9 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
 
   bool get canGoBack => _fileEngine.canGoBack;
   bool get atFilesystemRoot => _fileEngine.atFilesystemRoot;
-  bool get hasCutPaths => _cutPaths != null && _cutPaths!.isNotEmpty;
+  bool get hasCutPaths => _fileClipboardNotifier.state?.isCut ?? false;
   bool get hasPendingPaste =>
-      hasCutPaths || (_pendingCopyPaths?.isNotEmpty ?? false) || _zipClipboardNotifier.state != null;
+      _fileClipboardNotifier.state != null || _zipClipboardNotifier.state != null;
 
   Future<void> openFolder(String path) async {
     state = state.copyWith(isLoading: true, errorMessage: null, selectedPaths: {});
@@ -276,8 +275,7 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
   /// Menandai item terpilih untuk di-copy. Paste dilakukan di folder
   /// tujuan lewat [pasteHere].
   void copySelected() {
-    _cutPaths = null; // pastikan bukan mode cut
-    _pendingCopyPaths = state.selectedPaths.toList();
+    _fileClipboardNotifier.set(state.selectedPaths.toList(), isCut: false);
     _zipClipboardNotifier.clear(); // cuma 1 jenis clipboard aktif dalam satu waktu
     state = state.copyWith(selectedPaths: {});
   }
@@ -285,8 +283,7 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
   /// Menandai item terpilih untuk dipindah (cut). Paste dilakukan di
   /// folder tujuan lewat [pasteHere].
   void cutSelected() {
-    _pendingCopyPaths = null;
-    _cutPaths = state.selectedPaths.toList();
+    _fileClipboardNotifier.set(state.selectedPaths.toList(), isCut: true);
     _zipClipboardNotifier.clear();
     state = state.copyWith(selectedPaths: {});
   }
@@ -295,10 +292,9 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
   /// menyalin/memindah apa pun. Dipanggil dari tombol "Batal" di bar
   /// clipboard bawah layar.
   void cancelPendingPaste() {
-    _cutPaths = null;
-    _pendingCopyPaths = null;
+    _fileClipboardNotifier.clear();
     _zipClipboardNotifier.clear();
-    state = state.copyWith(); // trigger rebuild (field ini di luar ExplorerState)
+    state = state.copyWith(); // trigger rebuild (clipboard sekarang state global, bukan field lokal ExplorerState)
   }
 
   /// Cek apakah ada nama item di clipboard yang sudah dipakai di
@@ -311,7 +307,7 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
     if (destination == null) return [];
 
     final zipClip = _zipClipboardNotifier.state;
-    final paths = zipClip?.entryPaths ?? _cutPaths ?? _pendingCopyPaths;
+    final paths = zipClip?.entryPaths ?? _fileClipboardNotifier.state?.paths;
     if (paths == null || paths.isEmpty) return [];
 
     final conflicts = <String>[];
@@ -349,14 +345,16 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
       return;
     }
 
-    if (_cutPaths != null && _cutPaths!.isNotEmpty) {
-      final paths = _cutPaths!;
-      _cutPaths = null;
-      await _taskQueue.move(paths, destination, strategy: strategy);
-    } else if (_pendingCopyPaths != null && _pendingCopyPaths!.isNotEmpty) {
-      final paths = _pendingCopyPaths!;
-      _pendingCopyPaths = null;
-      await _taskQueue.copy(paths, destination, strategy: strategy);
+    final fileClip = _fileClipboardNotifier.state;
+    if (fileClip != null && fileClip.paths.isNotEmpty) {
+      final paths = fileClip.paths;
+      final isCut = fileClip.isCut;
+      _fileClipboardNotifier.clear();
+      if (isCut) {
+        await _taskQueue.move(paths, destination, strategy: strategy);
+      } else {
+        await _taskQueue.copy(paths, destination, strategy: strategy);
+      }
     }
   }
 
@@ -459,6 +457,7 @@ final explorerProvider = StateNotifierProvider.family<ExplorerNotifier, Explorer
     // user tanpa diminta).
     final defaults = ref.read(explorerDefaultsProvider);
     final zipClipboardNotifier = ref.read(zipClipboardProvider.notifier);
-    return ExplorerNotifier(fileEngine, taskQueue, eventBus, defaults, zipClipboardNotifier);
+    final fileClipboardNotifier = ref.read(fileClipboardProvider.notifier);
+    return ExplorerNotifier(fileEngine, taskQueue, eventBus, defaults, zipClipboardNotifier, fileClipboardNotifier);
   },
 );

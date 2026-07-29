@@ -55,6 +55,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:share_plus/share_plus.dart';
+import '../../core/clipboard/file_clipboard.dart';
+import '../../core/clipboard/zip_clipboard.dart';
 import '../../core/localization/app_strings.dart';
 import '../../core/models/file_item.dart';
 import '../../core/native_bridge/native_bridge.dart';
@@ -110,6 +112,15 @@ class ExplorerScreen extends ConsumerWidget {
     // (lihat thumbnail_tile.dart). Cuma perlu di-watch, tidak dipakai
     // nilainya (Provider<void>).
     ref.watch(thumbnailCacheClearListenerProvider);
+
+    // Watch clipboard global (bukan per-rootPath) biar bar Paste di
+    // bawah layar reaktif ikut update walau Copy/Cut-nya dipencet
+    // dari instance ExplorerScreen root LAIN (mis. Internal Storage
+    // -> paste di SD Card). Nilainya sendiri tidak dipakai langsung
+    // di sini — notifier.hasPendingPaste/hasCutPaths yang baca isinya
+    // — ini cuma buat trigger rebuild.
+    ref.watch(fileClipboardProvider);
+    ref.watch(zipClipboardProvider);
 
     final explorerState = ref.watch(explorerProvider(rootPath));
     final notifier = ref.read(explorerProvider(rootPath).notifier);
