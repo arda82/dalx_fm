@@ -74,6 +74,7 @@ import '../storage_overview/storage_overview_screen.dart';
 import '../task_queue/task.dart';
 import '../task_queue/task_queue.dart';
 import '../task_queue/task_queue_screen.dart';
+import '../../core/theme/icon_scale.dart';
 import 'app_drawer.dart';
 import 'explorer_state.dart';
 import 'file_info_sheet.dart';
@@ -1148,7 +1149,7 @@ class _MoreMenuButton extends StatelessWidget {
 // Tombol icon+label di clipboard bar bawah — dibuat lebih besar
 // (dibanding IconButton toolbar biasa) supaya gampang di-tap dan
 // jelas apa fungsinya tanpa perlu tooltip.
-class _ClipboardBarButton extends StatelessWidget {
+class _ClipboardBarButton extends ConsumerWidget {
   final IconData icon;
   final String label;
   final Color? color;
@@ -1162,7 +1163,11 @@ class _ClipboardBarButton extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    // standaloneIconSize: SATU angka dasar yang sama dengan ikon
+    // drawer & menu titik tiga (dulu 24 tetap, tidak selaras dan
+    // tidak ikut Settings > Font Size sama sekali).
+    final size = standaloneIconSize(ref.watch(fontScaleProvider));
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(8),
@@ -1171,7 +1176,7 @@ class _ClipboardBarButton extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 24, color: color),
+            Icon(icon, size: size, color: color),
             const SizedBox(height: 3),
             Text(
               label,
@@ -1184,7 +1189,7 @@ class _ClipboardBarButton extends StatelessWidget {
   }
 }
 
-class _MenuRow extends StatelessWidget {
+class _MenuRow extends ConsumerWidget {
   final IconData icon;
   final String label;
   final bool active;
@@ -1192,10 +1197,17 @@ class _MenuRow extends StatelessWidget {
   const _MenuRow({required this.icon, required this.label, this.active = false});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Sebelumnya size:18 tetap — paling kecil sendiri dibanding
+    // drawer(~24)/clipboard bar(24), dan sama sekali tidak ikut
+    // fontScale. Sekarang pakai angka dasar yang sama dengan
+    // keduanya (kStandaloneIconBaseSize) supaya menu titik tiga
+    // "selaras" dengan drawer, dan ikut membesar/mengecil di
+    // Settings > Font Size.
+    final size = standaloneIconSize(ref.watch(fontScaleProvider));
     return Row(
       children: [
-        Icon(icon, size: 18, color: active ? dalxAccent : null),
+        Icon(icon, size: size, color: active ? dalxAccent : null),
         const SizedBox(width: 12),
         Text(label, style: TextStyle(color: active ? dalxAccent : null)),
       ],
@@ -1241,8 +1253,11 @@ class _FileSearchDelegate extends SearchDelegate<void> {
       itemBuilder: (context, index) {
         final item = results[index];
         return ListTile(
-          leading: Icon(item.isFolder ? Icons.folder : Icons.insert_drive_file_outlined,
-              color: item.isFolder ? dalxAccent : Colors.grey),
+          leading: DalxFileIcon(
+            item: item,
+            icon: item.isFolder ? Icons.folder : Icons.insert_drive_file_outlined,
+            accentColor: item.isFolder ? dalxAccent : null,
+          ),
           title: Text(item.name),
           onTap: () {
             if (pickMode && !item.isFolder) {
@@ -1302,22 +1317,11 @@ class _FileListTile extends StatelessWidget {
                 isSelected ? Icons.check_circle : Icons.circle_outlined,
                 color: isSelected ? dalxAccent : Colors.grey,
               )
-            : (item.isThumbnailable
-                ? ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
-                    child: SizedBox(
-                      width: 40,
-                      height: 40,
-                      child: DalxThumbnail(
-                        item: item,
-                        fallback: Icon(_iconForFile(item), color: Colors.grey),
-                      ),
-                    ),
-                  )
-                : Icon(
-                    item.isFolder ? Icons.folder : _iconForFile(item),
-                    color: item.isFolder ? dalxAccent : Colors.grey,
-                  )),
+            : DalxFileIcon(
+                item: item,
+                icon: item.isFolder ? Icons.folder : _iconForFile(item),
+                accentColor: item.isFolder ? dalxAccent : null,
+              ),
         title: Text(
           item.name,
           maxLines: 1,
@@ -1423,26 +1427,11 @@ class _FileGridTile extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.start,
               children: [
                 const SizedBox(height: 6),
-                SizedBox(
-                  width: 56,
-                  height: 56,
-                  child: item.isThumbnailable
-                      ? ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: DalxThumbnail(
-                            item: item,
-                            fallback: Center(
-                              child: Icon(_iconForFile(item), size: 52, color: Colors.grey),
-                            ),
-                          ),
-                        )
-                      : Center(
-                          child: Icon(
-                            item.isFolder ? Icons.folder : _iconForFile(item),
-                            size: 52,
-                            color: item.isFolder ? dalxAccent : Colors.grey,
-                          ),
-                        ),
+                DalxFileIcon(
+                  item: item,
+                  icon: item.isFolder ? Icons.folder : _iconForFile(item),
+                  accentColor: item.isFolder ? dalxAccent : null,
+                  boxBaseSize: 56,
                 ),
                 const SizedBox(height: 5),
                 // Tinggi direserve TETAP (cukup buat 2 baris) supaya

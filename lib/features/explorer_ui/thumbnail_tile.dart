@@ -18,6 +18,8 @@ import '../../core/events/event_bus.dart';
 import '../../core/events/event_catalog.dart';
 import '../../core/models/file_item.dart';
 import '../../core/native_bridge/native_bridge.dart';
+import '../../core/settings/app_settings.dart';
+import '../../core/theme/icon_scale.dart';
 
 /// Cache in-memory (BUKAN persist, hilang begitu app di-kill) supaya
 /// method channel generateThumbnail cuma dipanggil SEKALI per file
@@ -102,6 +104,90 @@ class DalxThumbnail extends ConsumerWidget {
           errorBuilder: (_, __, ___) => fallback,
         );
       },
+    );
+  }
+}
+
+/// Ikon file/folder BOXED dipakai di List & Grid View — satu wadah
+/// rounded-square yang sama persis buat SEMUA tipe (folder, ikon
+/// dokumen tipis, maupun thumbnail asli APK/foto/video), supaya
+/// tidak ada lagi ikon yang kelihatan "tenggelam" (PDF/JSON kecil
+/// tipis) di sebelah ikon yang "berat" (thumbnail APK/foto penuh
+/// warna) — lihat mockup icon-size-mockup.html bagian "Sesudah".
+///
+/// Ukurannya IKUT fontScaleProvider (Settings > Font Size): di
+/// "Sedang" wadahnya 34x34/radius 9/glyph 19 (sama persis kotak logo
+/// D di AppDrawer header), di "Kecil"/"Besar"/"Ekstra Besar" ikut
+/// naik-turun proporsional lewat helper di core/theme/icon_scale.dart
+/// — bukan angka tetap kayak sebelumnya.
+class DalxFileIcon extends ConsumerWidget {
+  final FileItem item;
+  final IconData icon;
+
+  /// Warna aksen kalau item folder (dalxAccent) — null buat file
+  /// biasa (pakai warna abu default dari tema).
+  final Color? accentColor;
+
+  /// Ukuran dasar wadah SEBELUM dikali fontScale. Default
+  /// kIconBoxBaseSize (34, patokan List View). Grid View pakai wadah
+  /// lebih besar (mis. 56) — radius & glyph dihitung tetap dari rasio
+  /// yang sama (kIconBoxRadiusRatio/kIconGlyphSizeRatio) supaya
+  /// bentuknya selaras dengan List View, bukan wadah baru yang lepas.
+  final double boxBaseSize;
+
+  const DalxFileIcon({
+    super.key,
+    required this.item,
+    required this.icon,
+    this.accentColor,
+    this.boxBaseSize = kIconBoxBaseSize,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final fontScale = ref.watch(fontScaleProvider);
+    final boxSize = boxBaseSize * fontScale;
+    final radius = boxBaseSize * kIconBoxRadiusRatio * fontScale;
+    final glyphSize = boxBaseSize * kIconGlyphSizeRatio * fontScale;
+
+    final fallbackBox = _plainBox(context, boxSize, radius, glyphSize);
+
+    if (item.isThumbnailable) {
+      // Thumbnail asli (APK/foto/video) dipangkas pas ke wadah yang
+      // SAMA ukurannya dengan ikon dokumen biasa — sebelumnya
+      // thumbnail selalu 40x40 radius 4 tetap, tidak pernah selaras
+      // dengan ikon lain dan tidak ikut Font Size sama sekali.
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(radius),
+        child: SizedBox(
+          width: boxSize,
+          height: boxSize,
+          child: DalxThumbnail(
+            item: item,
+            fit: BoxFit.cover,
+            fallback: fallbackBox,
+          ),
+        ),
+      );
+    }
+
+    return fallbackBox;
+  }
+
+  Widget _plainBox(BuildContext context, double boxSize, double radius, double glyphSize) {
+    return Container(
+      width: boxSize,
+      height: boxSize,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: iconBoxBackground(context),
+        borderRadius: BorderRadius.circular(radius),
+      ),
+      child: Icon(
+        icon,
+        size: glyphSize,
+        color: accentColor ?? Colors.grey,
+      ),
     );
   }
 }

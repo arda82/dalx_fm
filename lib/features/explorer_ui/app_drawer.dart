@@ -22,6 +22,7 @@ import '../../core/events/event_catalog.dart';
 import '../../core/localization/app_strings.dart';
 import '../../core/settings/app_settings.dart';
 import '../../core/storage_access/storage_access.dart';
+import '../../core/theme/icon_scale.dart';
 import '../favorites/favorites_screen.dart';
 import '../settings/settings_screen.dart';
 import '../storage_overview/storage_overview_screen.dart';
@@ -281,7 +282,7 @@ class AppDrawer extends ConsumerWidget {
   }
 }
 
-class _DrawerTile extends StatelessWidget {
+class _DrawerTile extends ConsumerWidget {
   final IconData icon;
   final String label;
   final bool active;
@@ -299,10 +300,16 @@ class _DrawerTile extends StatelessWidget {
   static const dalxAccent = Color(0xFF0A84FF);
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Dulu Icon() tanpa size eksplisit (default Material ~24, tetap,
+    // tidak ikut Font Size). Sekarang pakai standaloneIconSize —
+    // angka dasar yang SAMA dengan ikon menu titik tiga & clipboard
+    // bar, dan ikut membesar/mengecil sesuai Settings > Font Size.
+    final size = standaloneIconSize(ref.watch(fontScaleProvider));
     return ListTile(
       leading: Icon(
         icon,
+        size: size,
         color: active ? dalxAccent : (disabled ? Colors.grey.shade400 : null),
       ),
       title: Text(
