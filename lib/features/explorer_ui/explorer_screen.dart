@@ -179,7 +179,7 @@ class ExplorerScreen extends ConsumerWidget {
         drawer: pickMode ? null : const AppDrawer(),
         body: Column(
           children: [
-            if (!explorerState.isSelectMode || pickMode) _buildBreadcrumb(explorerState),
+            if (!explorerState.isSelectMode || pickMode) _buildBreadcrumb(context, ref, explorerState, notifier),
             if (!explorerState.isSelectMode || pickMode) const Divider(height: 1),
             Expanded(
               child: MediaQuery(
@@ -626,11 +626,61 @@ class ExplorerScreen extends ConsumerWidget {
   }
 
   // ---------------- Breadcrumb ----------------
+  //
+  // Format tampilan tergantung Root Mode (lihat ARCHITECTURE.md /
+  // rootModeProvider):
+  //  - Non-root, Internal Storage: /storage/emulated/0/... -> "0/..."
+  //  - Non-root, SD Card/USB OTG:  /storage/<volId>/...    -> "<volId>/..."
+  //    (kata "storage" dibuang, "emulated" gak pernah muncul di
+  //    volume eksternal jadi tidak perlu ditangani)
+  //  - Root Mode: path asli filesystem, tanpa transformasi apapun —
+  //    currentPath sudah otomatis path sesungguhnya berkat goToParent()
+  //    di explorer_state.dart, jadi tinggal dipakai langsung.
+  //
+  // Tiap segmen menyimpan path lengkap aslinya sendiri-sendiri (bukan
+  // cuma label yang sudah dipendekin), supaya klik segmen manapun
+  // langsung buka path yang benar lewat notifier.openFolder().
 
-  Widget _buildBreadcrumb(ExplorerState state) {
+  List<_BreadcrumbSegment> _buildBreadcrumbSegments(String path, bool isRootMode) {
+    final rawSegments = path.split('/').where((s) => s.isNotEmpty).toList();
+    if (rawSegments.isEmpty) return const [];
+
+    final result = <_BreadcrumbSegment>[];
+    var startIndex = 0;
+    var cumulative = '';
+
+    if (!isRootMode && rawSegments[0] == 'storage') {
+      if (rawSegments.length >= 3 && rawSegments[1] == 'emulated') {
+        // Internal Storage: gabung "storage/emulated/0" -> label "0"
+        cumulative = '/storage/emulated/${rawSegments[2]}';
+        result.add(_BreadcrumbSegment(rawSegments[2], cumulative));
+        startIndex = 3;
+      } else if (rawSegments.length >= 2) {
+        // SD Card / USB OTG: buang kata "storage", volume id tampil
+        // apa adanya sebagai entri pertama.
+        cumulative = '/storage/${rawSegments[1]}';
+        result.add(_BreadcrumbSegment(rawSegments[1], cumulative));
+        startIndex = 2;
+      }
+    }
+
+    for (var i = startIndex; i < rawSegments.length; i++) {
+      cumulative = '$cumulative/${rawSegments[i]}';
+      result.add(_BreadcrumbSegment(rawSegments[i], cumulative));
+    }
+    return result;
+  }
+
+  Widget _buildBreadcrumb(BuildContext context, WidgetRef ref, ExplorerState state, ExplorerNotifier notifier) {
     final path = state.currentPath;
     if (path == null) return const SizedBox(height: 36);
-    final segments = path.split('/').where((s) => s.isNotEmpty).toList();
+
+    final isRootMode = ref.watch(rootModeProvider);
+    final segments = _buildBreadcrumbSegments(path, isRootMode);
+
+    // Samain besar font-nya sama nama file/folder di list (_FileListTile
+    // tidak set fontSize eksplisit -> ikut default titleMedium tema).
+    final baseFontSize = Theme.of(context).textTheme.titleMedium?.fontSize ?? 16;
 
     return Container(
       height: 36,
@@ -643,14 +693,21 @@ class ExplorerScreen extends ConsumerWidget {
           child: Icon(Icons.chevron_right, size: 14),
         ),
         itemBuilder: (context, index) {
+          final segment = segments[index];
           final isLast = index == segments.length - 1;
           return Center(
-            child: Text(
-              segments[index],
-              style: TextStyle(
-                fontSize: 12,
-                color: isLast ? null : dalxAccent,
-                fontWeight: isLast ? FontWeight.w600 : FontWeight.normal,
+            child: InkWell(
+              onTap: isLast ? null : () => notifier.openFolder(segment.path),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 2),
+                child: Text(
+                  segment.label,
+                  style: TextStyle(
+                    fontSize: baseFontSize,
+                    color: isLast ? null : dalxAccent,
+                    fontWeight: isLast ? FontWeight.w600 : FontWeight.normal,
+                  ),
+                ),
               ),
             ),
           );
@@ -1275,6 +1332,15 @@ class _FileSearchDelegate extends SearchDelegate<void> {
 }
 
 // ---------------- File List Tile (List View) ----------------
+
+/// Satu segmen breadcrumb: [label] yang ditampilkan (bisa sudah
+/// dipendekin, mis. "0" ganti "storage/emulated/0") dan [path] path
+/// lengkap ASLI yang dituju kalau segmen ini di-tap.
+class _BreadcrumbSegment {
+  final String label;
+  final String path;
+  const _BreadcrumbSegment(this.label, this.path);
+}
 
 class _FileListTile extends StatelessWidget {
   final FileItem item;
