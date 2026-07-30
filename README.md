@@ -143,13 +143,6 @@ System.
 
 ---
 
-## Status
-
-Development aktif, saat ini di **Fase 8 — Native Power-up**
-(compress native 7Z/RAR, PPT preview selesai; PDF/PPT editing & USB
-OTG penuh masih berjalan).
-
----
 
 ## Lisensi
 
