@@ -1388,6 +1388,18 @@ class _FileListTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Icon/thumbnail file SELALU ditampilkan apa adanya, baik lagi
+    // select mode atau tidak — sebelumnya pas select mode, leading
+    // diganti TOTAL jadi cuma lingkaran centang, jadi thumbnail foto
+    // ketutup dan bikin bingung mau hapus gambar yang mana (temuan
+    // Damar, dibandingin sama CX File Manager yang icon-nya tetap
+    // kelihatan + checkbox dapat slot sendiri).
+    final fileIcon = DalxFileIcon(
+      item: item,
+      icon: item.isFolder ? Icons.folder : _iconForFile(item),
+      accentColor: item.isFolder ? dalxAccent : null,
+    );
+
     return Container(
       color: isSelected ? dalxAccent.withOpacity(0.12) : null,
       child: ListTile(
@@ -1408,15 +1420,18 @@ class _FileListTile extends StatelessWidget {
         // di kombinasi 1-baris (folder) maupun 2-baris (file+ukuran).
         titleAlignment: ListTileTitleAlignment.center,
         leading: isSelectMode
-            ? Icon(
-                isSelected ? Icons.check_circle : Icons.circle_outlined,
-                color: isSelected ? dalxAccent : Colors.grey,
+            ? Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    isSelected ? Icons.check_circle : Icons.circle_outlined,
+                    color: isSelected ? dalxAccent : Colors.grey,
+                  ),
+                  const SizedBox(width: 8),
+                  fileIcon,
+                ],
               )
-            : DalxFileIcon(
-                item: item,
-                icon: item.isFolder ? Icons.folder : _iconForFile(item),
-                accentColor: item.isFolder ? dalxAccent : null,
-              ),
+            : fileIcon,
         title: Text(
           item.name,
           maxLines: 1,

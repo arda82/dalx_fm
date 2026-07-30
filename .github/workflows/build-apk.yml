@@ -11,6 +11,12 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    # Wajib buat step "Publish ke GitHub Release" di bawah — GITHUB_TOKEN
+    # default cuma read-only untuk urusan Release, tanpa ini upload
+    # asset ke Release bakal gagal permission (403).
+    permissions:
+      contents: write
+
     # HAS_KEYSTORE dipakai step "Setup signing" untuk cek apakah
     # secret KEYSTORE_BASE64 sudah diisi, tanpa membaca `secrets`
     # langsung di kondisi `if` (yang tidak didukung GitHub Actions).
@@ -92,3 +98,27 @@ jobs:
           name: dalx-release-${{ github.run_number }}
           path: build/app/outputs/flutter-apk/app-*-release.apk
           retention-days: 3
+
+      # Publish APK ke GitHub Release — "latest" di sini SENGAJA bukan
+      # nama rilis final, tapi satu Release yang DITIMPA tiap build baru
+      # dari main (bukan numpuk Release baru tiap kali). Ini buat
+      # nutupin kekurangan artifact di atas yang cuma tahan 3 hari &
+      # butuh login GitHub — Release permanen & bisa diakses tanpa
+      # login, jadi lebih gampang buat sideload kapan aja.
+      #
+      # Begitu nanti pindah ke skema versi MAJOR.MINOR.PATCH (bukan
+      # 0.0.<run_number> lagi), ganti `tag_name`/`name` di bawah jadi
+      # ikut tag git manual (mis. ${{ github.ref_name }}), dan ganti
+      # trigger `on:` di atas jadi `push: tags: ['v*']` biar tiap
+      # versi punya Release sendiri-sendiri (bukan ditimpa lagi).
+      - name: Publish ke GitHub Release (rolling "latest")
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: "Build terbaru (run #${{ github.run_number }})"
+          body: |
+            Build otomatis dari commit ${{ github.sha }} — run #${{ github.run_number }}.
+            Bukan rilis resmi bertahap (masih skema versi 0.0.<run_number>) — ini APK hasil build terakhir dari branch `main`.
+          prerelease: true
+          make_latest: true
+          files: build/app/outputs/flutter-apk/app-*-release.apk
