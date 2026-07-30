@@ -111,6 +111,20 @@ jobs:
       # ikut tag git manual (mis. ${{ github.ref_name }}), dan ganti
       # trigger `on:` di atas jadi `push: tags: ['v*']` biar tiap
       # versi punya Release sendiri-sendiri (bukan ditimpa lagi).
+      # GitHub punya fitur "Immutable Releases": begitu sebuah Release
+      # sudah published, asset-nya GAK BISA ditambah/ditimpa lagi
+      # selamanya (lihat error run #98: "Cannot upload asset ... to an
+      # immutable release"). Makanya strategi "timpa terus" gak bisa
+      # asal update Release yang sama — Release+tag lama harus
+      # DIHAPUS TOTAL dulu, baru publish bikin yang baru dari nol.
+      # `|| true` di akhir: aman kalau ini run PERTAMA kali (belum ada
+      # Release "latest" sama sekali, gh CLI bakal error "not found",
+      # itu diabaikan aja).
+      - name: Hapus Release "latest" lama (kalau ada)
+        run: gh release delete latest --yes --cleanup-tag || true
+        env:
+          GH_TOKEN: ${{ github.token }}
+
       - name: Publish ke GitHub Release (rolling "latest")
         uses: softprops/action-gh-release@v2
         with:
