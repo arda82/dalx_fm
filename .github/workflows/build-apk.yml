@@ -99,36 +99,32 @@ jobs:
           path: build/app/outputs/flutter-apk/app-*-release.apk
           retention-days: 3
 
-      # Publish APK ke GitHub Release — "latest" di sini SENGAJA bukan
-      # nama rilis final, tapi satu Release yang DITIMPA tiap build baru
-      # dari main (bukan numpuk Release baru tiap kali). Ini buat
-      # nutupin kekurangan artifact di atas yang cuma tahan 3 hari &
-      # butuh login GitHub — Release permanen & bisa diakses tanpa
-      # login, jadi lebih gampang buat sideload kapan aja.
+      # Publish APK ke GitHub Release. tag_name SENGAJA unik per run
+      # (bukan "latest" tetap) — GitHub blokir permanen pemakaian
+      # ULANG nama tag yang pernah kepakai Immutable Release, jadi
+      # nama tag statis bikin publish gagal terus di run kedua dan
+      # seterusnya. Yang bikin ini tetap kelihatan kayak "rolling
+      # latest" ke user adalah `make_latest: true` di bawah — itu yang
+      # nandain Release ini sebagai "Latest release" di halaman
+      # GitHub, dan yang bikin URL pendek
+      # github.com/<owner>/<repo>/releases/latest SELALU ngarah ke
+      # Release TERBARU, walau nama tag tiap run beda-beda.
+      #
+      # Konsekuensi: Release lama tetap numpuk di riwayat (gak ke-
+      # hapus otomatis) — beda dari desain awal yang mau "ditimpa
+      # terus". Kalau lama-lama kerasa penuh, bisa ditambah step
+      # cleanup nanti (hapus Release yang lebih tua dari N terakhir).
       #
       # Begitu nanti pindah ke skema versi MAJOR.MINOR.PATCH (bukan
       # 0.0.<run_number> lagi), ganti `tag_name`/`name` di bawah jadi
       # ikut tag git manual (mis. ${{ github.ref_name }}), dan ganti
       # trigger `on:` di atas jadi `push: tags: ['v*']` biar tiap
-      # versi punya Release sendiri-sendiri (bukan ditimpa lagi).
-      # GitHub punya fitur "Immutable Releases": begitu sebuah Release
-      # sudah published, asset-nya GAK BISA ditambah/ditimpa lagi
-      # selamanya (lihat error run #98: "Cannot upload asset ... to an
-      # immutable release"). Makanya strategi "timpa terus" gak bisa
-      # asal update Release yang sama — Release+tag lama harus
-      # DIHAPUS TOTAL dulu, baru publish bikin yang baru dari nol.
-      # `|| true` di akhir: aman kalau ini run PERTAMA kali (belum ada
-      # Release "latest" sama sekali, gh CLI bakal error "not found",
-      # itu diabaikan aja).
-      - name: Hapus Release "latest" lama (kalau ada)
-        run: gh release delete latest --yes --cleanup-tag || true
-        env:
-          GH_TOKEN: ${{ github.token }}
-
-      - name: Publish ke GitHub Release (rolling "latest")
+      # versi punya Release sendiri-sendiri yang memang dimaksudkan
+      # permanen (bukan dianggap "build sementara" lagi).
+      - name: Publish ke GitHub Release (tandai sebagai Latest)
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: latest
+          tag_name: build-${{ github.run_number }}
           name: "Build terbaru (run #${{ github.run_number }})"
           body: |
             Build otomatis dari commit ${{ github.sha }} — run #${{ github.run_number }}.
