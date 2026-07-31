@@ -1408,14 +1408,14 @@ class _FileListTile extends StatelessWidget {
         // banyak folder berturut-turut).
         dense: true,
         visualDensity: const VisualDensity(vertical: -2),
-        // Fix utama alignment: SEBELUMNYA subtitle folder diisi
-        // Text('') (string kosong) — itu tetap dihitung ListTile
-        // sebagai baris subtitle yang ada (cuma kosong doang), bukan
-        // "nggak ada subtitle". Efeknya ListTile dianggap 2-baris dan
-        // ikon leading ikut naik ke atas (top-aligned), bukan center
-        // sejajar teks. Sekarang null beneran kalau folder -> ListTile
-        // jadi 1-baris murni, ikon otomatis center.
-        subtitle: item.isFolder ? null : Text(_formatSize(item.sizeBytes)),
+        // Row folder & file SEKARANG SAMA-SAMA 2-baris (subtitle
+        // selalu ada widget, gak pernah null) — folder nampilin
+        // jumlah item (DalxFolderItemCount, lazy "N item" mirip
+        // thumbnail), file nampilin ukuran. Karena konsisten 2-baris
+        // buat SEMUA row, ListTile otomatis align rapi tanpa perlu
+        // trik null vs Text('') kayak sebelumnya (dulu folder 1-baris
+        // vs file 2-baris bikin ikon leading naik-turun beda posisi).
+        subtitle: item.isFolder ? DalxFolderItemCount(item: item) : Text(_formatSize(item.sizeBytes)),
         // Jaga-jaga tambahan: paksa center eksplisit biar konsisten
         // di kombinasi 1-baris (folder) maupun 2-baris (file+ukuran).
         titleAlignment: ListTileTitleAlignment.center,

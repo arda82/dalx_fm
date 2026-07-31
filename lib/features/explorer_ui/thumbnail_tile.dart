@@ -20,6 +20,7 @@ import '../../core/models/file_item.dart';
 import '../../core/native_bridge/native_bridge.dart';
 import '../../core/settings/app_settings.dart';
 import '../../core/theme/icon_scale.dart';
+import '../file_engine/file_engine.dart';
 
 /// Cache in-memory (BUKAN persist, hilang begitu app di-kill) supaya
 /// method channel generateThumbnail cuma dipanggil SEKALI per file
@@ -103,6 +104,46 @@ class DalxThumbnail extends ConsumerWidget {
           gaplessPlayback: true,
           errorBuilder: (_, __, ___) => fallback,
         );
+      },
+    );
+  }
+}
+
+/// Cache in-memory buat DalxFolderItemCount — sama filosofinya kayak
+/// _thumbnailFutureCache di atas: hindari FolderItemCounter.count()
+/// (yang baca SharedPreferences + mungkin readdir) dipanggil berulang
+/// tiap widget rebuild gara-gara ListView recycle pas di-scroll.
+/// Cache PERSISTEN-nya (across app restart) ada di
+/// PerFolderItemCountStore (SharedPreferences) — ini cuma lapisan
+/// tambahan di memory buat hidup selama app berjalan.
+final Map<String, Future<int?>> _folderItemCountFutureCache = {};
+
+/// Widget subtitle lazy "N item" buat folder di List View — tampil
+/// kosong dulu (gak nge-block render row), baru muncul begitu
+/// FolderItemCounter selesai (dari cache tervalidasi modifiedAt, atau
+/// hitung baru kalau folder berubah). Folder yang gagal dibaca
+/// (permission denied) SENGAJA tetap kosong, bukan nampilin error.
+class DalxFolderItemCount extends ConsumerWidget {
+  final FileItem item;
+
+  const DalxFolderItemCount({super.key, required this.item});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final cacheKey = '${item.path}|${item.modifiedAt.millisecondsSinceEpoch}';
+    final future = _folderItemCountFutureCache.putIfAbsent(
+      cacheKey,
+      () => ref.read(folderItemCounterProvider).count(item.path, item.modifiedAt),
+    );
+
+    return FutureBuilder<int?>(
+      future: future,
+      builder: (context, snapshot) {
+        final count = snapshot.data;
+        if (snapshot.connectionState != ConnectionState.done || count == null) {
+          return const SizedBox.shrink();
+        }
+        return Text('$count item');
       },
     );
   }

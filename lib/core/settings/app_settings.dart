@@ -232,6 +232,73 @@ class PerFolderSortStore {
 
 final perFolderSortStoreProvider = Provider<PerFolderSortStore>((ref) => PerFolderSortStore());
 
+// ---------------- Jumlah Item per Folder (cache) ----------------
+//
+// Cache "berapa item di dalam folder X" — dipakai explorer_ui buat
+// nampilin subtitle "N item" di bawah nama folder (List View), mirror
+// tampilan CX File Manager. SENGAJA gak scan semua folder di awal
+// (gak ada momen yang pas buat itu di Android — izin storage baru
+// diminta SETELAH install, bukan pas install), dan SENGAJA gak nyatet
+// manual tiap event dari DalX sendiri (event system cuma nangkep
+// perubahan yang DalX sendiri lakuin, gak nangkep app LAIN yang nulis
+// ke folder yang sama, mis. WhatsApp/browser/kamera — cache jadi basi).
+//
+// Solusinya: [FolderItemCounter] (lihat file_engine.dart) bandingin
+// modifiedAt folder SEKARANG vs yang kesimpen di cache ini. OS
+// otomatis update modifiedAt folder tiap kali isinya berubah — dari
+// SIAPAPUN yang ngelakuin, bukan cuma DalX. Sama → pakai count dari
+// cache (instan, gak baca folder lagi). Beda → hitung ulang sekali,
+// update cache.
+//
+// TIDAK dibuat sebagai StateNotifier/Provider reaktif — sama kayak
+// PerFolderSortStore, dipakai sekali baca/tulis lewat FolderItemCounter,
+// bukan sesuatu yang men-trigger rebuild widget manapun secara langsung.
+
+const _perFolderItemCountKey = 'dalx_per_folder_item_count';
+
+class FolderItemCountEntry {
+  final int count;
+  final int modifiedAtMillis;
+  const FolderItemCountEntry({required this.count, required this.modifiedAtMillis});
+}
+
+class PerFolderItemCountStore {
+  Future<FolderItemCountEntry?> get(String path) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_perFolderItemCountKey);
+    if (raw == null) return null;
+    try {
+      final map = jsonDecode(raw) as Map<String, dynamic>;
+      final entry = map[path] as Map<String, dynamic>?;
+      if (entry == null) return null;
+      return FolderItemCountEntry(
+        count: entry['count'] as int,
+        modifiedAtMillis: entry['modifiedAtMillis'] as int,
+      );
+    } catch (_) {
+      // JSON korup/format lama — abaikan, treat kayak belum ada data.
+      return null;
+    }
+  }
+
+  Future<void> set(String path, int count, int modifiedAtMillis) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_perFolderItemCountKey);
+    Map<String, dynamic> map = {};
+    if (raw != null) {
+      try {
+        map = jsonDecode(raw) as Map<String, dynamic>;
+      } catch (_) {
+        map = {};
+      }
+    }
+    map[path] = {'count': count, 'modifiedAtMillis': modifiedAtMillis};
+    await prefs.setString(_perFolderItemCountKey, jsonEncode(map));
+  }
+}
+
+final perFolderItemCountStoreProvider = Provider<PerFolderItemCountStore>((ref) => PerFolderItemCountStore());
+
 // ---------------- Layar Awal (Home Path) ----------------
 //
 // null = default (StorageOverviewScreen, perilaku lama). Non-null =

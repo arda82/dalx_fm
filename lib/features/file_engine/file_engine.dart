@@ -355,3 +355,42 @@ final fileEngineProvider = Provider.family<FileEngine, String>((ref, rootPath) {
   final perFolderSortStore = ref.watch(perFolderSortStoreProvider);
   return FileEngine(eventBus, nativeBridge, perFolderSortStore);
 });
+
+/// Hitung jumlah item di dalam sebuah folder, dengan cache tervalidasi
+/// lewat modifiedAt (lihat komentar panjang PerFolderItemCountStore di
+/// app_settings.dart). Dipakai [DalxFolderItemCount] (thumbnail_tile.dart)
+/// buat subtitle "N item" di List View.
+///
+/// Return null kalau folder gak bisa dibaca (permission denied dsb) —
+/// caller cukup gak nampilin apa-apa, bukan nampilin error.
+class FolderItemCounter {
+  final PerFolderItemCountStore _store;
+  FolderItemCounter(this._store);
+
+  Future<int?> count(String path, DateTime folderModifiedAt) async {
+    final modifiedAtMillis = folderModifiedAt.millisecondsSinceEpoch;
+    try {
+      final cached = await _store.get(path);
+      if (cached != null && cached.modifiedAtMillis == modifiedAtMillis) {
+        return cached.count; // folder belum berubah sejak terakhir dihitung
+      }
+
+      var itemCount = 0;
+      await for (final _ in Directory(path).list(recursive: false, followLinks: false)) {
+        itemCount++;
+      }
+
+      await _store.set(path, itemCount, modifiedAtMillis);
+      return itemCount;
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
+/// Provider biasa (BUKAN family) — operasi ini gak terikat rootPath
+/// ExplorerScreen tertentu, satu instance dipakai bareng buat semua
+/// folder di storage manapun.
+final folderItemCounterProvider = Provider<FolderItemCounter>((ref) {
+  return FolderItemCounter(ref.watch(perFolderItemCountStoreProvider));
+});
