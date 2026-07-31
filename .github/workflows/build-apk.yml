@@ -99,29 +99,23 @@ jobs:
           path: build/app/outputs/flutter-apk/app-*-release.apk
           retention-days: 3
 
-      # Publish APK ke GitHub Release. tag_name SENGAJA unik per run
-      # (bukan "latest" tetap) — GitHub blokir permanen pemakaian
-      # ULANG nama tag yang pernah kepakai Immutable Release, jadi
-      # nama tag statis bikin publish gagal terus di run kedua dan
-      # seterusnya. Yang bikin ini tetap kelihatan kayak "rolling
-      # latest" ke user adalah `make_latest: true` di bawah — itu yang
-      # nandain Release ini sebagai "Latest release" di halaman
-      # GitHub, dan yang bikin URL pendek
-      # github.com/<owner>/<repo>/releases/latest SELALU ngarah ke
-      # Release TERBARU, walau nama tag tiap run beda-beda.
+      # Publish APK ke GitHub Release. tag_name unik per run (build-N)
+      # — GitHub blokir permanen pemakaian ULANG nama tag yang pernah
+      # kepakai Immutable Release, jadi tag statis kayak "latest"
+      # gagal terus mulai run kedua. make_latest: true di bawah yang
+      # bikin URL github.com/<owner>/<repo>/releases/latest tetap
+      # selalu ngarah ke Release TERBARU walau nama tag beda tiap run.
       #
-      # Konsekuensi: Release lama tetap numpuk di riwayat (gak ke-
-      # hapus otomatis) — beda dari desain awal yang mau "ditimpa
-      # terus". Kalau lama-lama kerasa penuh, bisa ditambah step
-      # cleanup nanti (hapus Release yang lebih tua dari N terakhir).
-      #
-      # Begitu nanti pindah ke skema versi MAJOR.MINOR.PATCH (bukan
-      # 0.0.<run_number> lagi), ganti `tag_name`/`name` di bawah jadi
-      # ikut tag git manual (mis. ${{ github.ref_name }}), dan ganti
-      # trigger `on:` di atas jadi `push: tags: ['v*']` biar tiap
-      # versi punya Release sendiri-sendiri yang memang dimaksudkan
-      # permanen (bukan dianggap "build sementara" lagi).
-      - name: Publish ke GitHub Release (tandai sebagai Latest)
+      # PENTING (fix run #100): --split-per-abi hasilnya 3 APK yang
+      # diupload PARALEL. Ternyata begitu asset PERTAMA kelar upload,
+      # GitHub langsung nganggep Release-nya "published" -> asset
+      # ke-2/ke-3 yang masih nyusul kena blokir Immutable Release di
+      # tengah jalan (race condition), walau tag-nya udah unik. Fix
+      # resmi dari pesan error GitHub: publish sebagai DRAFT dulu
+      # (draft release bebas upload berkali-kali, gak kena immutable),
+      # baru "terbitkan" dari draft di step TERPISAH setelah semua
+      # asset dipastikan kepasang.
+      - name: Publish ke GitHub Release sebagai draft (upload semua asset)
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
@@ -130,5 +124,16 @@ jobs:
             Build otomatis dari commit ${{ github.sha }} — run #${{ github.run_number }}.
             Bukan rilis resmi bertahap (masih skema versi 0.0.<run_number>) — ini APK hasil build terakhir dari branch `main`.
           prerelease: true
-          make_latest: true
+          draft: true
           files: build/app/outputs/flutter-apk/app-*-release.apk
+
+      # Terbitkan dari draft SETELAH semua asset di atas beres
+      # keupload — di titik ini gak ada lagi race condition, aman.
+      # --latest eksplisit nandain sebagai "Latest release" (biar
+      # .../releases/latest tetap ngarah kesini), soalnya flag
+      # make_latest di step draft di atas gak otomatis berlaku pas
+      # nanti di-draft:false-in secara terpisah kayak gini.
+      - name: Terbitkan Release dari draft
+        run: gh release edit build-${{ github.run_number }} --draft=false --latest
+        env:
+          GH_TOKEN: ${{ github.token }}
