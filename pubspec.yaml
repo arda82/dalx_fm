@@ -61,7 +61,8 @@ dependencies:
   just_audio: ^0.9.42
   
   #html viewer
-  webview_flutter: ^4.10.0  
+  webview_flutter: ^4.10.0
+  html: ^0.15.4
 
   # CATATAN Fase 8 Pilar #3 (Edit PDF - rotate halaman): sempat coba
   # syncfusion_flutter_pdf, DIBATALKAN — proses validasi Community

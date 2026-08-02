@@ -59,6 +59,8 @@
 
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:html/dom.dart' as dom;
+import 'package:html/parser.dart' as html_parser;
 import 'package:re_editor/re_editor.dart';
 import 'package:re_highlight/styles/atom-one-dark.dart';
 import 'package:webview_flutter/webview_flutter.dart';
@@ -227,17 +229,18 @@ class _CodeEditorScreenState extends State<CodeEditorScreen> {
   }
 
   // ---------------- Inline CSS/JS lokal ke dalam HTML ----------------
-
-  static final _linkTagPattern = RegExp(
-    r'<link\b[^>]*\brel=["\x27]stylesheet["\x27][^>]*\bhref=["\x27]([^"\x27]+)["\x27][^>]*>'
-    r'|<link\b[^>]*\bhref=["\x27]([^"\x27]+)["\x27][^>]*\brel=["\x27]stylesheet["\x27][^>]*>',
-    caseSensitive: false,
-  );
-
-  static final _scriptTagPattern = RegExp(
-    r'<script\b[^>]*\bsrc=["\x27]([^"\x27]+)["\x27][^>]*>\s*</script>',
-    caseSensitive: false,
-  );
+  //
+  // Pakai package:html (DOM parser beneran, bukan regex) — resmi dari
+  // tim Dart, pure Dart (gak nambah beban native/Gradle). Nangkep
+  // kasus yang regex gak bisa: atribut multi-baris, urutan atribut
+  // acak, tag self-closing tanpa "/>", dll.
+  //
+  // CATATAN: document.outerHtml di bawah adalah hasil serialisasi
+  // ULANG dari DOM tree, bukan salinan teks asli 1:1 (spasi/quote
+  // style bisa sedikit berbeda). Ini AMAN untuk preview karena cuma
+  // dikirim ke WebView buat dirender, TIDAK PERNAH ditulis balik ke
+  // file — jalur Save tetap pakai _controller.text apa adanya, gak
+  // lewat fungsi ini sama sekali.
 
   bool _isRemoteUrl(String path) {
     return path.startsWith('http://') ||
@@ -256,39 +259,27 @@ class _CodeEditorScreenState extends State<CodeEditorScreen> {
   }
 
   Future<String> _inlineLocalAssets(String rawHtml) async {
-    var html = await _replaceTagsAsync(rawHtml, _linkTagPattern, (match) async {
-      final href = match.group(1) ?? match.group(2) ?? '';
-      if (href.isEmpty || _isRemoteUrl(href)) return match.group(0)!;
+    final document = html_parser.parse(rawHtml);
+
+    for (final link in document.querySelectorAll('link[rel="stylesheet"]')) {
+      final href = link.attributes['href'];
+      if (href == null || href.isEmpty || _isRemoteUrl(href)) continue;
       final content = await _readSiblingFile(href);
-      if (content == null) return match.group(0)!; // file gak ketemu -> biarin tag asli
-      return '<style>\n$content\n</style>';
-    });
-
-    html = await _replaceTagsAsync(html, _scriptTagPattern, (match) async {
-      final src = match.group(1) ?? '';
-      if (src.isEmpty || _isRemoteUrl(src)) return match.group(0)!;
-      final content = await _readSiblingFile(src);
-      if (content == null) return match.group(0)!;
-      return '<script>\n$content\n</script>';
-    });
-
-    return html;
-  }
-
-  Future<String> _replaceTagsAsync(
-    String input,
-    RegExp pattern,
-    Future<String> Function(Match) replace,
-  ) async {
-    final buffer = StringBuffer();
-    var lastEnd = 0;
-    for (final match in pattern.allMatches(input)) {
-      buffer.write(input.substring(lastEnd, match.start));
-      buffer.write(await replace(match));
-      lastEnd = match.end;
+      if (content == null) continue; // file gak ketemu -> biarin tag link asli
+      final styleTag = dom.Element.tag('style')..text = content;
+      link.replaceWith(styleTag);
     }
-    buffer.write(input.substring(lastEnd));
-    return buffer.toString();
+
+    for (final script in document.querySelectorAll('script[src]')) {
+      final src = script.attributes['src'];
+      if (src == null || src.isEmpty || _isRemoteUrl(src)) continue;
+      final content = await _readSiblingFile(src);
+      if (content == null) continue;
+      final inlineScript = dom.Element.tag('script')..text = content;
+      script.replaceWith(inlineScript);
+    }
+
+    return document.outerHtml;
   }
 
   String _extensionOf(String fileName) {
