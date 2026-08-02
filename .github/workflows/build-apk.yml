@@ -81,8 +81,18 @@ jobs:
       # Flutter — SENGAJA bukan lewat splits{} manual di build.gradle,
       # karena itu konflik sama abiFilters otomatis Flutter Gradle
       # Plugin versi baru (lihat catatan di build.gradle).
-      - name: Build APK (release, split per ABI)
-        run: flutter build apk --release --split-per-abi
+      # --obfuscate + --split-debug-info: motong nama simbol Dart asli
+      # (nama kelas/fungsi) keluar dari APK dan ganti jadi nama acak,
+      # plus nyimpen peta simbol aslinya TERPISAH di build/symbols
+      # (bukan ikut ke-bundle di APK). Efeknya APK lebih kecil, TAPI
+      # stack trace crash jadi kode acak yang gak kebaca manusia kalau
+      # symbol map ini gak disimpan — makanya diupload sebagai artifact
+      # terpisah di step bawah, WAJIB disimpen tiap kali ada build yang
+      # dipakai serius (bukan cuma buat testing internal), biar kalau
+      # ada crash report nanti bisa di-"flutter symbolize" balik jadi
+      # stack trace yang jelas.
+      - name: Build APK (release, split per ABI, obfuscated)
+        run: flutter build apk --release --split-per-abi --obfuscate --split-debug-info=build/symbols
 
       # Hasil --split-per-abi ada 3 file: app-armeabi-v7a-release.apk,
       # app-arm64-v8a-release.apk, app-x86_64-release.apk. Upload
@@ -98,6 +108,18 @@ jobs:
           name: dalx-release-${{ github.run_number }}
           path: build/app/outputs/flutter-apk/app-*-release.apk
           retention-days: 3
+
+      # Symbol map dari --split-debug-info, DIPISAH dari artifact APK
+      # di atas (retention lebih lama, karena ini yang dibutuhkan kalau
+      # suatu saat perlu bedah crash report dari build tertentu — APK
+      # boleh ilang setelah 3 hari, tapi symbol map lebih baik ditahan
+      # lebih lama supaya crash lama masih bisa dilacak).
+      - name: Upload symbol map (untuk symbolicate crash nanti)
+        uses: actions/upload-artifact@v4
+        with:
+          name: dalx-symbols-${{ github.run_number }}
+          path: build/symbols
+          retention-days: 30
 
       # Publish APK ke GitHub Release. tag_name unik per run (build-N)
       # — GitHub blokir permanen pemakaian ULANG nama tag yang pernah

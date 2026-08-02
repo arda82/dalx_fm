@@ -73,16 +73,30 @@
 -dontwarn org.brotli.dec.**
 -dontwarn com.github.luben.zstd.**
 
-# junrar (RAR extract) — dipanggil langsung (bukan lewat
-# MethodChannel/reflection kayak com.dalx.app.**), tapi tetap di-keep
-# konservatif sesuai filosofi file ini: beberapa versi junrar pakai
-# reflection internal buat deteksi multi-volume archive (.part1.rar,
-# dst) yang R8 nggak bisa lacak lewat call graph biasa.
+# junrar (RAR extract) — SENGAJA TETAP full-package keep, TIDAK
+# dipersempit kayak commons-compress di atas. Beda kasusnya: junrar
+# pakai reflection internal buat deteksi multi-volume archive
+# (.part1.rar, dst), jadi R8 nggak bisa lacak kelas mana yang beneran
+# kepakai lewat call graph biasa — mempersempit ini berisiko strip
+# kelas yang cuma "kelihatan" nggak dipanggil padahal dipanggil via
+# reflection pas runtime nemu file multi-volume. Kalau nanti perlu
+# diringkas juga, WAJIB tes ekstrak RAR multi-volume dulu.
 -keep class com.github.junrar.** { *; }
 -dontwarn com.github.junrar.**
 
-# Commons Compress sendiri: konservatif sama, di-keep utuh biar aman
-# dari method/field yang ke-strip salah gara-gara reflection internal
-# (mis. deteksi format arsip otomatis lewat ArchiveStreamFactory).
--keep class org.apache.commons.compress.** { *; }
+# Commons Compress: DIPERSEMPIT dari full-package keep ke paket 7z
+# doang (org.apache.commons.compress.archivers.sevenz.**) — DalX
+# CUMA pakai jalur SevenZFile/SevenZOutputFile langsung (bukan lewat
+# ArchiveStreamFactory yang auto-detect format via reflection), jadi
+# format lain (tar, cpio, ar, dump, Pack200, dll) yang gak pernah
+# dipanggil DalX aman di-strip R8. Ini efektif motong sebagian besar
+# ukuran commons-compress dari APK final.
+#
+# RISIKO: kalau ada NoSuchMethodError/ClassNotFoundException di fitur
+# 7z compress/extract setelah build ini, kemungkinan besar itu kelas
+# pendukung sevenz yang gak ketangkep wildcard di bawah (mis. util
+# checksum/CRC internal) — tambahin -keep spesifik ke kelasnya, JANGAN
+# langsung balik ke full-package keep yang lama.
+-keep class org.apache.commons.compress.archivers.sevenz.** { *; }
+-keep class org.apache.commons.compress.utils.** { *; }
 -dontwarn org.apache.commons.compress.**
