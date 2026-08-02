@@ -31,12 +31,42 @@
 //
 // File berukuran > 3 MB dibuka read-only — TextField-based editor
 // bisa lag di teks sangat panjang.
+//
+// --- Preview HTML/CSS/JS ---
+// Cuma muncul kalau isHtmlExtension() true. In-place (bukan push
+// screen baru) lewat IndexedStack, sama pola dengan
+// xlsx_editor_screen.dart pindah sheet — supaya kode editor dan
+// WebView tetap hidup di memori pas gonta-ganti mode, dan tombol
+// Refresh bisa baca _controller.text langsung dari sumber yang sama
+// (bukan snapshot beku yang dikirim lewat constructor).
+//
+// Refresh SENGAJA manual (tombol di preview toolbar), bukan auto tiap
+// ketik — auto-reload WebView tiap keystroke berat dan bikin preview
+// nge-lag pas user masih ngetik.
+//
+// Back fisik/gesture pas mode Preview: 1x back HARUS balik ke mode
+// Kode dulu, BUKAN langsung keluar screen. Makanya canPop di PopScope
+// harus false selama _mode == EditorMode.preview, terlepas dari
+// _hasUnsavedChanges.
+//
+// CATATAN BELUM TERVERIFIKASI DI DEVICE: baseUrl file:// dipakai biar
+// <link href="style.css"> dan <script src="script.js"> di HTML bisa
+// resolve file tetangganya di folder yang sama. Android WebView versi
+// baru kadang membatasi akses file:// lintas origin. Kalau CSS/JS
+// eksternal gak muncul pas dites di device, fallback-nya: baca isi
+// file .css/.js terkait manual lalu inject inline ke <style>/<script>
+// sebelum loadHtmlString — jangan andalkan baseUrl doang.
 
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:re_editor/re_editor.dart';
 import 'package:re_highlight/styles/atom-one-dark.dart';
+import 'package:webview_flutter/webview_flutter.dart';
 import 'language_detector.dart';
+
+/// Mode tampilan code_editor_screen — Kode (default) atau Preview
+/// (WebView render HTML, cuma tersedia untuk file HTML).
+enum EditorMode { code, preview }
 
 const _dalxAccent = Color(0xFF0A84FF);
 const _editorBackground = Color(0xFF1E1E1E);
@@ -65,6 +95,11 @@ class _CodeEditorScreenState extends State<CodeEditorScreen> {
   bool _wordWrap = false;
   String? _errorMessage;
   String _originalText = '';
+
+  EditorMode _mode = EditorMode.code;
+  WebViewController? _webViewController;
+
+  bool get _isHtml => isHtmlExtension(_extensionOf(widget.path.split('/').last));
 
   @override
   void initState() {
@@ -157,6 +192,31 @@ class _CodeEditorScreenState extends State<CodeEditorScreen> {
     return result ?? false;
   }
 
+  // ---------------- Mode Kode <-> Preview ----------------
+
+  void _setMode(EditorMode mode) {
+    if (_mode == mode) return;
+    setState(() => _mode = mode);
+    if (mode == EditorMode.preview) {
+      _webViewController ??= WebViewController()
+        ..setJavaScriptMode(JavaScriptMode.unrestricted)
+        ..setBackgroundColor(Colors.white);
+      _refreshPreview();
+    }
+  }
+
+  // Baca ulang _controller.text (bukan _originalText) — sengaja gak
+  // butuh file tersimpan dulu, biar user bisa preview draft yang
+  // belum di-save.
+  void _refreshPreview() {
+    final controller = _webViewController;
+    if (controller == null) return;
+    controller.loadHtmlString(
+      _controller.text,
+      baseUrl: 'file://$_parentPath/',
+    );
+  }
+
   String _extensionOf(String fileName) {
     final dotIndex = fileName.lastIndexOf('.');
     if (dotIndex == -1 || dotIndex == fileName.length - 1) return '';
@@ -195,6 +255,9 @@ class _CodeEditorScreenState extends State<CodeEditorScreen> {
         break;
       case 'save':
         _save();
+        break;
+      case 'preview':
+        _setMode(EditorMode.preview);
         break;
     }
   }
@@ -235,6 +298,13 @@ class _CodeEditorScreenState extends State<CodeEditorScreen> {
         enabled: canEdit && !_isSaving,
         child: _MenuRow(icon: Icons.save_outlined, label: 'Save', dimmed: !(canEdit && !_isSaving)),
       ),
+      if (_isHtml) ...[
+        const PopupMenuDivider(height: 8),
+        PopupMenuItem(
+          value: 'preview',
+          child: _MenuRow(icon: Icons.visibility_outlined, label: 'Preview', active: _mode == EditorMode.preview),
+        ),
+      ],
     ];
   }
 
@@ -317,9 +387,17 @@ class _CodeEditorScreenState extends State<CodeEditorScreen> {
     final language = languageForExtension(_extensionOf(fileName));
 
     return PopScope(
-      canPop: !_hasUnsavedChanges,
+      // Mode preview: canPop selalu false, terlepas dari
+      // _hasUnsavedChanges — back pertama WAJIB balik ke mode Kode
+      // dulu, baru back kedua (dari mode Kode) ikut aturan unsaved
+      // changes yang sudah ada.
+      canPop: _mode == EditorMode.code && !_hasUnsavedChanges,
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop) return;
+        if (_mode == EditorMode.preview) {
+          _setMode(EditorMode.code);
+          return;
+        }
         final confirmed = await _confirmDiscardIfNeeded();
         if (confirmed && context.mounted) {
           Navigator.of(context).pop();
@@ -374,7 +452,112 @@ class _CodeEditorScreenState extends State<CodeEditorScreen> {
                   ),
                 ],
         ),
-        body: _buildBody(language),
+        body: _isHtml
+            ? IndexedStack(
+                index: _mode == EditorMode.code ? 0 : 1,
+                children: [
+                  _buildBody(language),
+                  _buildPreviewBody(),
+                ],
+              )
+            : _buildBody(language),
+        floatingActionButton: (_isHtml && !_isLoading && _errorMessage == null)
+            ? _buildPreviewToggle()
+            : null,
+        floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
+      ),
+    );
+  }
+
+  // ---------------- Body Preview (WebView) ----------------
+
+  Widget _buildPreviewBody() {
+    final controller = _webViewController;
+    return Column(
+      children: [
+        Container(
+          width: double.infinity,
+          color: _panelBackground,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Preview • ${widget.path.split('/').last}',
+                  style: const TextStyle(color: Colors.white70, fontSize: 12),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.refresh, color: Colors.white70, size: 20),
+                tooltip: 'Refresh preview',
+                onPressed: _refreshPreview,
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: controller == null
+              ? const SizedBox.shrink()
+              : WebViewWidget(controller: controller),
+        ),
+      ],
+    );
+  }
+
+  // ---------------- Floating pill toggle Kode <-> Preview ----------------
+
+  Widget _buildPreviewToggle() {
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: _panelBackground,
+        borderRadius: BorderRadius.circular(999),
+        boxShadow: const [
+          BoxShadow(color: Colors.black45, blurRadius: 12, offset: Offset(0, 4)),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _buildToggleButton(label: 'Kode', mode: EditorMode.code, icon: Icons.code),
+          _buildToggleButton(label: 'Preview', mode: EditorMode.preview, icon: Icons.visibility_outlined),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildToggleButton({
+    required String label,
+    required EditorMode mode,
+    required IconData icon,
+  }) {
+    final active = _mode == mode;
+    return GestureDetector(
+      onTap: () => _setMode(mode),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: active ? _dalxAccent : Colors.transparent,
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 15, color: active ? Colors.white : Colors.white54),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: active ? Colors.white : Colors.white54,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

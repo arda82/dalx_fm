@@ -108,3 +108,14 @@ CodeLanguage? languageForExtension(String ext) {
       return null;
   }
 }
+
+/// True kalau ekstensi ini file HTML — dipakai code_editor_screen.dart
+/// buat nentuin kapan tombol "Preview" (render WebView) ditampilkan.
+///
+/// Sengaja fungsi terpisah dari languageForExtension, BUKAN dicek lewat
+/// `language.id == 'xml'` — HTML dipetakan ke rule syntax 'xml' di atas
+/// (baris case 'xml'/'html'/'htm'), jadi kalau dicek dari id, file .xml
+/// biasa ikut ke-anggap HTML dan preview-nya bakal salah render.
+bool isHtmlExtension(String ext) {
+  return ext == 'html' || ext == 'htm';
+}
