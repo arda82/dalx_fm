@@ -59,6 +59,9 @@ dependencies:
   # Kekurangan yang ditemukan Damar: audio player (MP3, dll) belum
   # ada sama sekali — Media Viewer Fase 3 cuma nangenin gambar+video.
   just_audio: ^0.9.42
+  
+  #html viewer
+  webview_flutter: ^4.10.0  
 
   # CATATAN Fase 8 Pilar #3 (Edit PDF - rotate halaman): sempat coba
   # syncfusion_flutter_pdf, DIBATALKAN — proses validasi Community
