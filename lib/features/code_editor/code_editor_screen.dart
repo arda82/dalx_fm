@@ -194,6 +194,8 @@ class _CodeEditorScreenState extends State<CodeEditorScreen> {
 
   // ---------------- Mode Kode <-> Preview ----------------
 
+  bool _previewLoading = false;
+
   void _setMode(EditorMode mode) {
     if (_mode == mode) return;
     setState(() => _mode = mode);
@@ -208,13 +210,85 @@ class _CodeEditorScreenState extends State<CodeEditorScreen> {
   // Baca ulang _controller.text (bukan _originalText) — sengaja gak
   // butuh file tersimpan dulu, biar user bisa preview draft yang
   // belum di-save.
-  void _refreshPreview() {
+  //
+  // CSS/JS lokal (href/src relatif, bukan http(s)://) di-inline
+  // manual ke <style>/<script> sebelum dirender — baseUrl file://
+  // TERBUKTI gak reliable resolve resource eksternal di Android
+  // WebView versi baru (dicoba, gak jalan). Jangan balik ke pendekatan
+  // baseUrl lagi tanpa alasan kuat.
+  Future<void> _refreshPreview() async {
     final controller = _webViewController;
     if (controller == null) return;
-    controller.loadHtmlString(
-      _controller.text,
-      baseUrl: 'file://$_parentPath/',
-    );
+    setState(() => _previewLoading = true);
+    final inlined = await _inlineLocalAssets(_controller.text);
+    if (!mounted) return;
+    setState(() => _previewLoading = false);
+    await controller.loadHtmlString(inlined, baseUrl: 'file://$_parentPath/');
+  }
+
+  // ---------------- Inline CSS/JS lokal ke dalam HTML ----------------
+
+  static final _linkTagPattern = RegExp(
+    r'<link\b[^>]*\brel=["\x27]stylesheet["\x27][^>]*\bhref=["\x27]([^"\x27]+)["\x27][^>]*>'
+    r'|<link\b[^>]*\bhref=["\x27]([^"\x27]+)["\x27][^>]*\brel=["\x27]stylesheet["\x27][^>]*>',
+    caseSensitive: false,
+  );
+
+  static final _scriptTagPattern = RegExp(
+    r'<script\b[^>]*\bsrc=["\x27]([^"\x27]+)["\x27][^>]*>\s*</script>',
+    caseSensitive: false,
+  );
+
+  bool _isRemoteUrl(String path) {
+    return path.startsWith('http://') ||
+        path.startsWith('https://') ||
+        path.startsWith('//');
+  }
+
+  Future<String?> _readSiblingFile(String relativePath) async {
+    try {
+      final file = File('$_parentPath/$relativePath');
+      if (!await file.exists()) return null;
+      return await file.readAsString();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<String> _inlineLocalAssets(String rawHtml) async {
+    var html = await _replaceTagsAsync(rawHtml, _linkTagPattern, (match) async {
+      final href = match.group(1) ?? match.group(2) ?? '';
+      if (href.isEmpty || _isRemoteUrl(href)) return match.group(0)!;
+      final content = await _readSiblingFile(href);
+      if (content == null) return match.group(0)!; // file gak ketemu -> biarin tag asli
+      return '<style>\n$content\n</style>';
+    });
+
+    html = await _replaceTagsAsync(html, _scriptTagPattern, (match) async {
+      final src = match.group(1) ?? '';
+      if (src.isEmpty || _isRemoteUrl(src)) return match.group(0)!;
+      final content = await _readSiblingFile(src);
+      if (content == null) return match.group(0)!;
+      return '<script>\n$content\n</script>';
+    });
+
+    return html;
+  }
+
+  Future<String> _replaceTagsAsync(
+    String input,
+    RegExp pattern,
+    Future<String> Function(Match) replace,
+  ) async {
+    final buffer = StringBuffer();
+    var lastEnd = 0;
+    for (final match in pattern.allMatches(input)) {
+      buffer.write(input.substring(lastEnd, match.start));
+      buffer.write(await replace(match));
+      lastEnd = match.end;
+    }
+    buffer.write(input.substring(lastEnd));
+    return buffer.toString();
   }
 
   String _extensionOf(String fileName) {
@@ -490,9 +564,15 @@ class _CodeEditorScreenState extends State<CodeEditorScreen> {
                 ),
               ),
               IconButton(
-                icon: const Icon(Icons.refresh, color: Colors.white70, size: 20),
+                icon: _previewLoading
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: _dalxAccent),
+                      )
+                    : const Icon(Icons.refresh, color: Colors.white70, size: 20),
                 tooltip: 'Refresh preview',
-                onPressed: _refreshPreview,
+                onPressed: _previewLoading ? null : _refreshPreview,
               ),
             ],
           ),
