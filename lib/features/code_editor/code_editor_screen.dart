@@ -59,6 +59,7 @@
 
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show MethodChannel, PlatformException;
 import 'package:html/dom.dart' as dom;
 import 'package:html/parser.dart' as html_parser;
 import 'package:re_editor/re_editor.dart';
@@ -293,6 +294,61 @@ class _CodeEditorScreenState extends State<CodeEditorScreen> {
     return idx <= 0 ? '/' : widget.path.substring(0, idx);
   }
 
+  // ---------------- Run di Termux ----------------
+  //
+  // Channel berdiri sendiri (bukan numpang ke NativeBridge yang
+  // sudah ada) — sengaja, karena file MainActivity.kt/NativeBridge.kt
+  // saat ini belum di-upload ke sesi ini buat di-diff. Kalau nanti
+  // mau dikonsolidasi ke channel utama, aman dipindah belakangan,
+  // logic Dart-nya gak berubah, cuma nama channel-nya.
+  static const MethodChannel _termuxChannel = MethodChannel('com.dalx.app/termux');
+
+  // Internal Storage di Android SELALU di "/storage/emulated/0" —
+  // path ini fixed, gak tergantung device. SD Card/USB OTG mount di
+  // path lain (mis. "/storage/1234-5678"), jadi cukup dicek prefix
+  // ini doang, gak perlu tau storageAccessProvider detail.
+  bool get _isOnInternalStorage => widget.path.startsWith('/storage/emulated/0/');
+
+  Future<void> _runInTermux() async {
+    if (!_isOnInternalStorage) {
+      _showSnack(
+        'File ini ada di SD Card/USB OTG — Termux gak bisa akses langsung. '
+        'Pindahin dulu ke Internal Storage, baru coba Run di Termux lagi.',
+      );
+      return;
+    }
+
+    final interpreter = interpreterCommandFor(_extensionOf(widget.path.split('/').last));
+    if (interpreter == null) return; // safety net, seharusnya menu udah gak muncul
+
+    try {
+      await _termuxChannel.invokeMethod('runCommand', {
+        'workdir': _parentPath,
+        'interpreter': interpreter,
+        'fileName': widget.path.split('/').last,
+      });
+    } on PlatformException catch (e) {
+      String message;
+      switch (e.code) {
+        case 'TERMUX_NOT_FOUND':
+          message = 'Termux belum terinstall. Install dulu dari F-Droid/Play Store.';
+          break;
+        case 'TERMUX_PERMISSION_DENIED':
+          message = 'DalX belum diizinkan kirim command ke Termux. '
+              'Cek izin RUN_COMMAND di Settings > Apps > DalX.';
+          break;
+        default:
+          message = 'Gagal membuka Termux: ${e.message ?? 'unknown error'}';
+      }
+      _showSnack(message);
+    }
+  }
+
+  void _showSnack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
   // ---------------- Menu More (semua aksi toolbar) ----------------
 
   void _handleMenuAction(String value) {
@@ -323,6 +379,9 @@ class _CodeEditorScreenState extends State<CodeEditorScreen> {
         break;
       case 'preview':
         _setMode(EditorMode.preview);
+        break;
+      case 'run_termux':
+        _runInTermux();
         break;
     }
   }
@@ -368,6 +427,13 @@ class _CodeEditorScreenState extends State<CodeEditorScreen> {
         PopupMenuItem(
           value: 'preview',
           child: _MenuRow(icon: Icons.visibility_outlined, label: 'Preview', active: _mode == EditorMode.preview),
+        ),
+      ],
+      if (interpreterCommandFor(_extensionOf(widget.path.split('/').last)) != null) ...[
+        const PopupMenuDivider(height: 8),
+        PopupMenuItem(
+          value: 'run_termux',
+          child: _MenuRow(icon: Icons.terminal, label: 'Run di Termux'),
         ),
       ],
     ];

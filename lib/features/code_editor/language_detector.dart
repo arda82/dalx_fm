@@ -119,3 +119,30 @@ CodeLanguage? languageForExtension(String ext) {
 bool isHtmlExtension(String ext) {
   return ext == 'html' || ext == 'htm';
 }
+
+/// Nama binary interpreter di Termux (`$PREFIX/bin/<nama>`) buat
+/// ekstensi file ini. Null = bahasa ini gak ada interpreter yang
+/// masuk akal dijalanin lewat Termux (mis. .json, .md, .txt).
+///
+/// Dipakai code_editor_screen.dart buat nentuin kapan menu "Run di
+/// Termux" ditampilkan — user tetap yang tanggung jawab pastiin
+/// interpreter-nya beneran ke-install (`pkg install python`, dst) di
+/// Termux miliknya; DalX gak ngecek itu.
+String? interpreterCommandFor(String ext) {
+  switch (ext) {
+    case 'py':
+      return 'python3';
+    case 'js':
+      return 'node';
+    case 'sh':
+      return 'bash';
+    case 'rb':
+      return 'ruby';
+    case 'php':
+      return 'php';
+    case 'lua':
+      return 'lua';
+    default:
+      return null;
+  }
+}

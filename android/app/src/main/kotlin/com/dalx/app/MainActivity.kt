@@ -4,6 +4,8 @@ import android.app.ActivityManager
 import android.app.usage.StorageStatsManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Environment
 import android.os.StatFs
 import android.os.storage.StorageManager
@@ -40,8 +42,14 @@ import io.flutter.plugin.common.MethodChannel
 //   (native, lihat NativeBridge.kt) — dipakai selama operasi native
 //   berjalan di background thread, supaya progress bar Task Queue
 //   Dart nggak cuma lompat 0% -> 100%.
+// - "com.dalx.app/termux" (fitur Run di Termux, code_editor) —
+//   kirim Intent RUN_COMMAND ke com.termux.app.RunCommandService.
+//   Sengaja channel berdiri sendiri, bukan lewat NativeBridge,
+//   karena scope-nya kecil & 1 arah (fire Intent, gak ada state yang
+//   perlu di-attach kayak EventSink).
 class MainActivity : FlutterActivity() {
     private val deviceInfoChannelName = "com.dalx.app/device_info"
+    private val termuxChannelName = "com.dalx.app/termux"
 
     private lateinit var nativeBridge: NativeBridge
     private var intentEventSink: EventChannel.EventSink? = null
@@ -104,6 +112,15 @@ class MainActivity : FlutterActivity() {
                 nativeBridge.attachArchiveEventSink(null)
             }
         })
+
+        // ---------------- termux (Run di Termux) ----------------
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, termuxChannelName)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "runCommand" -> handleRunCommand(call, result)
+                    else -> result.notImplemented()
+                }
+            }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -165,5 +182,74 @@ class MainActivity : FlutterActivity() {
             "totalBytes" to memoryInfo.totalMem,
             "availableBytes" to memoryInfo.availMem
         )
+    }
+
+    /**
+     * Kirim Intent RUN_COMMAND ke Termux (RunCommandService), buka
+     * Termux TERLIHAT (BACKGROUND=false) di folder & file yang sama
+     * persis dengan yang lagi dibuka di code_editor_screen.dart.
+     *
+     * Sengaja BACKGROUND=false, BUKAN true — biar Termux muncul
+     * sebagai app kelihatan dan stdin-nya nyambung ke keyboard user
+     * beneran. Ini yang bikin input() Python (atau interaktivitas
+     * bahasa lain) bisa dijawab langsung oleh user, bukan nge-hang
+     * nunggu stdin yang gak pernah datang.
+     *
+     * Path SD Card/USB OTG SENGAJA ditolak di sisi Dart (cek prefix
+     * "/storage/emulated/0/") sebelum method channel ini dipanggil —
+     * jadi kalau handler ini jalan, workdir sudah pasti internal
+     * storage.
+     */
+    private fun handleRunCommand(call: io.flutter.plugin.common.MethodCall, result: MethodChannel.Result) {
+        val workdir = call.argument<String>("workdir")
+        val interpreter = call.argument<String>("interpreter")
+        val fileName = call.argument<String>("fileName")
+
+        if (workdir == null || interpreter == null || fileName == null) {
+            result.error("INVALID_ARGS", "workdir/interpreter/fileName gak boleh null", null)
+            return
+        }
+
+        // Cek Termux terinstall dulu — butuh <queries> di
+        // AndroidManifest.xml (Android 11+ package visibility),
+        // kalau kelewat, ini SELALU false walau Termux beneran ada.
+        val termuxInstalled = try {
+            packageManager.getPackageInfo("com.termux", 0)
+            true
+        } catch (e: PackageManager.NameNotFoundException) {
+            false
+        }
+
+        if (!termuxInstalled) {
+            result.error("TERMUX_NOT_FOUND", "Termux belum terinstall", null)
+            return
+        }
+
+        try {
+            val intent = Intent()
+            intent.setClassName("com.termux", "com.termux.app.RunCommandService")
+            intent.action = "com.termux.RUN_COMMAND"
+            intent.putExtra(
+                "com.termux.RUN_COMMAND_PATH",
+                "/data/data/com.termux/files/usr/bin/$interpreter"
+            )
+            intent.putExtra("com.termux.RUN_COMMAND_ARGUMENTS", arrayOf(fileName))
+            intent.putExtra("com.termux.RUN_COMMAND_WORKDIR", workdir)
+            intent.putExtra("com.termux.RUN_COMMAND_BACKGROUND", false)
+            intent.putExtra("com.termux.RUN_COMMAND_SESSION_ACTION", "0")
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+            result.success(null)
+        } catch (e: SecurityException) {
+            // User belum grant com.termux.permission.RUN_COMMAND ke
+            // DalX, atau Termux belum enable allow-external-apps.
+            result.error("TERMUX_PERMISSION_DENIED", e.message, null)
+        } catch (e: Exception) {
+            result.error("TERMUX_ERROR", e.message, null)
+        }
     }
 }

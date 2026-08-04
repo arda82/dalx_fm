@@ -9,6 +9,19 @@
     <!-- Fase 1: izin trigger installer APK sistem -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
+    <!-- Fitur Run di Termux: izin kirim command RUN_COMMAND ke Termux
+         (com.termux.permission.RUN_COMMAND ini didefinisikan oleh
+         Termux sendiri, bukan permission bawaan Android) -->
+    <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
+
+    <!-- Android 11+ package visibility: tanpa ini,
+         packageManager.getPackageInfo("com.termux", 0) di
+         MainActivity.kt SELALU gagal walau Termux beneran
+         terinstall di device -->
+    <queries>
+        <package android:name="com.termux" />
+    </queries>
+
     <application
         android:label="DalX"
         android:name="${applicationName}"
