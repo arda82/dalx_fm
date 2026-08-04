@@ -195,6 +195,13 @@ class MainActivity : FlutterActivity() {
      * bahasa lain) bisa dijawab langsung oleh user, bukan nge-hang
      * nunggu stdin yang gak pernah datang.
      *
+     * RUN_COMMAND_PATH SENGAJA diarahkan ke bash, BUKAN interpreter
+     * (python3/node/dst) langsung — [shellCommand] dari Dart sudah
+     * dibungkus "... ; read -p 'Tekan Enter...'" di ujungnya, supaya
+     * sesi Termux gak otomatis ketutup begitu script selesai jalan
+     * (itu behavior default Termux kalau command-nya keluar sendiri
+     * tanpa ada proses lain yang nahan sesi tetap hidup).
+     *
      * Path SD Card/USB OTG SENGAJA ditolak di sisi Dart (cek prefix
      * "/storage/emulated/0/") sebelum method channel ini dipanggil —
      * jadi kalau handler ini jalan, workdir sudah pasti internal
@@ -202,11 +209,10 @@ class MainActivity : FlutterActivity() {
      */
     private fun handleRunCommand(call: io.flutter.plugin.common.MethodCall, result: MethodChannel.Result) {
         val workdir = call.argument<String>("workdir")
-        val interpreter = call.argument<String>("interpreter")
-        val fileName = call.argument<String>("fileName")
+        val shellCommand = call.argument<String>("shellCommand")
 
-        if (workdir == null || interpreter == null || fileName == null) {
-            result.error("INVALID_ARGS", "workdir/interpreter/fileName gak boleh null", null)
+        if (workdir == null || shellCommand == null) {
+            result.error("INVALID_ARGS", "workdir/shellCommand gak boleh null", null)
             return
         }
 
@@ -231,9 +237,9 @@ class MainActivity : FlutterActivity() {
             intent.action = "com.termux.RUN_COMMAND"
             intent.putExtra(
                 "com.termux.RUN_COMMAND_PATH",
-                "/data/data/com.termux/files/usr/bin/$interpreter"
+                "/data/data/com.termux/files/usr/bin/bash"
             )
-            intent.putExtra("com.termux.RUN_COMMAND_ARGUMENTS", arrayOf(fileName))
+            intent.putExtra("com.termux.RUN_COMMAND_ARGUMENTS", arrayOf("-c", shellCommand))
             intent.putExtra("com.termux.RUN_COMMAND_WORKDIR", workdir)
             intent.putExtra("com.termux.RUN_COMMAND_BACKGROUND", false)
             intent.putExtra("com.termux.RUN_COMMAND_SESSION_ACTION", "0")

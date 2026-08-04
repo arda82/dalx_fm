@@ -321,11 +321,22 @@ class _CodeEditorScreenState extends State<CodeEditorScreen> {
     final interpreter = interpreterCommandFor(_extensionOf(widget.path.split('/').last));
     if (interpreter == null) return; // safety net, seharusnya menu udah gak muncul
 
+    // Sengaja BUKAN jalanin interpreter langsung sebagai
+    // RUN_COMMAND_PATH — begitu proses itu selesai (apalagi script
+    // pendek), Termux otomatis nutup sesi & activity-nya (behavior
+    // default terminal, bukan sesuatu yang DalX minta). Dibungkus
+    // lewat bash -c yang di ujungnya nunggu Enter, biar user sempet
+    // baca output sebelum Termux ketutup.
+    final workdirQ = _shellQuote(_parentPath);
+    final fileQ = _shellQuote(widget.path.split('/').last);
+    final shellCommand = "cd $workdirQ && $interpreter $fileQ; "
+        "status=\$?; echo; echo \"--- Selesai (exit code: \$status) ---\"; "
+        "read -p 'Tekan Enter untuk menutup...' _";
+
     try {
       await _termuxChannel.invokeMethod('runCommand', {
         'workdir': _parentPath,
-        'interpreter': interpreter,
-        'fileName': widget.path.split('/').last,
+        'shellCommand': shellCommand,
       });
     } on PlatformException catch (e) {
       String message;
@@ -347,6 +358,12 @@ class _CodeEditorScreenState extends State<CodeEditorScreen> {
   void _showSnack(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  // Bungkus value jadi single-quoted string buat bash — aman walau
+  // ada spasi/tanda kutip di nama folder atau file.
+  String _shellQuote(String value) {
+    return "'${value.replaceAll("'", "'\"'\"'")}'";
   }
 
   // ---------------- Menu More (semua aksi toolbar) ----------------
