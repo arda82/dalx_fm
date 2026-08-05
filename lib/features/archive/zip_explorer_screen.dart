@@ -25,6 +25,7 @@ import 'package:archive/archive.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
+import '../../core/clipboard/file_clipboard.dart';
 import '../../core/clipboard/zip_clipboard.dart';
 import '../../core/localization/app_strings.dart';
 import '../../core/native_bridge/native_bridge.dart';
@@ -257,19 +258,26 @@ class _ZipExplorerScreenState extends ConsumerState<ZipExplorerScreen> {
   }
 
   void _copySelected({required bool isCut}) {
-    ref.read(zipClipboardProvider.notifier).set(
+    ref.read(zipClipboardProvider.notifier).add(
           widget.path,
           _selectedPaths.toList(),
           isCut: isCut,
         );
+    // Clipboard file REGULER ikut di-clear — cuma 1 JENIS clipboard
+    // aktif dalam satu waktu (dulu cuma satu arah: Copy/Cut di
+    // Explorer biasa nge-clear clipboard ZIP, tapi Copy/Cut ZIP di
+    // sini TIDAK nge-clear clipboard file biasa — bug kecil, sekalian
+    // dibenerin di sini biar simetris dan panel mengambangnya gak
+    // pernah numpuk 2 sekaligus).
+    ref.read(fileClipboardProvider.notifier).clear();
     final count = _selectedPaths.length;
     setState(() => _selectedPaths.clear());
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
           isCut
-              ? '$count item ditandai dipindah — arsip ZIP asli TIDAK berubah'
-              : '$count item disalin',
+              ? '$count item ditambahkan ke clipboard (dipindah) — arsip ZIP asli TIDAK berubah'
+              : '$count item ditambahkan ke clipboard (disalin)',
         ),
       ),
     );

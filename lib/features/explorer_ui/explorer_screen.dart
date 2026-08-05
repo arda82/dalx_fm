@@ -192,6 +192,12 @@ class ExplorerScreen extends ConsumerWidget {
         // sekarang MENGAMBANG (overlap konten), bukan dorong layout
         // kayak bar lama. Bar clipboard ZIP tetap versi lama (dorong
         // layout di dalam Column), di luar scope revisi ini.
+        // Stack (bukan Column) — panel clipboard MENGAMBANG, overlap
+        // konten, bukan dorong layout. File clipboard dan ZIP
+        // clipboard SEKARANG saling exclusive (lihat fix di
+        // zip_explorer_screen.dart _copySelected & explorer_state.dart
+        // copySelected/cutSelected — dua-duanya saling clear satu sama
+        // lain), jadi cukup 1 slot Positioned, gantian isinya.
         body: Stack(
           children: [
             Column(
@@ -213,8 +219,6 @@ class ExplorerScreen extends ConsumerWidget {
                     ),
                   ),
                 ),
-                if (!pickMode && notifier.hasPendingZipPaste)
-                  _buildZipClipboardBar(context, ref, notifier),
               ],
             ),
             if (!pickMode && notifier.hasPendingFilePaste)
@@ -223,6 +227,12 @@ class ExplorerScreen extends ConsumerWidget {
                 taskActive: ref.watch(taskQueueProvider).any((t) => t.isActive),
                 onPaste: (copyPaths, movePaths) =>
                     _handleFilePasteSelected(context, notifier, copyPaths, movePaths),
+              )
+            else if (!pickMode && notifier.hasPendingZipPaste)
+              _ZipClipboardPanel(
+                currentPath: explorerState.currentPath,
+                taskActive: ref.watch(taskQueueProvider).any((t) => t.isActive),
+                onPaste: (items) => _handleZipPasteSelected(context, notifier, items),
               ),
           ],
         ),
@@ -746,45 +756,18 @@ class ExplorerScreen extends ConsumerWidget {
     );
   }
 
-  // ---------------- Clipboard Bar ZIP (bawah layar, TIDAK BERUBAH) ----------------
+  // ---------------- Clipboard Panel ZIP (BARU, mengambang) ----------------
   //
-  // Khusus clipboard ZIP (Copy/Cut dari ZipExplorerScreen) — tetap
-  // versi simpel satu-batch, Batal/Tempel doang. Clipboard file
-  // reguler pindah ke _ClipboardPanel (mengambang, lihat di bawah).
-
-  Widget _buildZipClipboardBar(BuildContext context, WidgetRef ref, ExplorerNotifier notifier) {
-    final strings = AppStrings.of(context);
-    return SafeArea(
-      top: false,
-      child: Container(
-        color: dalxAccent.withOpacity(0.10),
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        child: Row(
-          children: [
-            Expanded(
-              child: _ZipClipboardBarButton(
-                icon: Icons.close,
-                label: strings.clipboardCancel,
-                onTap: notifier.cancelPendingPaste,
-              ),
-            ),
-            Container(width: 1, height: 36, color: dalxAccent.withOpacity(0.25)),
-            Expanded(
-              child: _ZipClipboardBarButton(
-                icon: Icons.content_paste,
-                label: strings.clipboardPaste,
-                color: dalxAccent,
-                onTap: () => _handleZipPasteWithConflictCheck(context, notifier),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _handleZipPasteWithConflictCheck(BuildContext context, ExplorerNotifier notifier) async {
-    final conflicts = await notifier.checkZipPasteConflicts();
+  // Dipanggil dari _ZipClipboardPanel begitu user tap "Tempel di
+  // sini" dengan subset entri ZIP yang dicentang (bisa dari beberapa
+  // file ZIP berbeda sekaligus). Alur cek-konflik-nya sama persis
+  // kayak file clipboard biasa.
+  Future<void> _handleZipPasteSelected(
+    BuildContext context,
+    ExplorerNotifier notifier,
+    List<ZipClipboardItem> items,
+  ) async {
+    final conflicts = await notifier.checkZipPasteConflicts(items);
 
     var strategy = ConflictStrategy.renameAuto;
     if (conflicts.isNotEmpty) {
@@ -794,7 +777,7 @@ class ExplorerScreen extends ConsumerWidget {
       strategy = chosen;
     }
 
-    await notifier.pasteZipHere(strategy: strategy);
+    await notifier.pasteZipSelected(items, strategy: strategy);
   }
 
   // ---------------- Clipboard Panel file reguler (BARU, mengambang) ----------------
@@ -1261,44 +1244,286 @@ class _MoreMenuButton extends StatelessWidget {
   }
 }
 
-// Tombol icon+label di bar clipboard ZIP bawah — dibuat lebih besar
-// (dibanding IconButton toolbar biasa) supaya gampang di-tap dan
-// jelas apa fungsinya tanpa perlu tooltip.
-class _ZipClipboardBarButton extends ConsumerWidget {
-  final IconData icon;
-  final String label;
-  final Color? color;
-  final VoidCallback onTap;
+// ---------------- Clipboard Panel ZIP (BARU, mengambang) ----------------
+//
+// Sama arsitekturnya persis kayak _ClipboardPanel (file reguler),
+// bedanya unit item di sini (zipPath, entryPath) bukan cuma path
+// filesystem — karena entri bisa datang dari BEBERAPA file ZIP
+// berbeda sekaligus (clipboard ZIP sekarang akumulatif lintas zip),
+// key checklist-nya gabungan zipPath+entryPath, bukan entryPath doang
+// (dua ZIP beda bisa punya entri dengan nama yang sama persis).
+class _ZipClipboardPanel extends ConsumerStatefulWidget {
+  final String? currentPath;
+  final bool taskActive;
+  final Future<void> Function(List<ZipClipboardItem> items) onPaste;
 
-  const _ZipClipboardBarButton({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-    this.color,
+  const _ZipClipboardPanel({
+    required this.currentPath,
+    required this.taskActive,
+    required this.onPaste,
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    // standaloneIconSize: SATU angka dasar yang sama dengan ikon
-    // drawer & menu titik tiga (dulu 24 tetap, tidak selaras dan
-    // tidak ikut Settings > Font Size sama sekali).
-    final size = standaloneIconSize(ref.watch(fontScaleProvider));
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 10),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: size, color: color),
-            const SizedBox(height: 3),
-            Text(
-              label,
-              style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w500, color: color),
-            ),
-          ],
+  ConsumerState<_ZipClipboardPanel> createState() => _ZipClipboardPanelState();
+}
+
+String _zipItemKey(ZipClipboardItem item) => '${item.zipPath}\u0000${item.entryPath}';
+
+class _ZipClipboardPanelState extends ConsumerState<_ZipClipboardPanel> {
+  bool _expanded = true;
+  final Set<String> _checkedKeys = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _checkedKeys.addAll(ref.read(zipClipboardProvider).map(_zipItemKey));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final items = ref.watch(zipClipboardProvider);
+
+    ref.listen<List<ZipClipboardItem>>(zipClipboardProvider, (previous, next) {
+      final prevKeys = (previous ?? const []).map(_zipItemKey).toSet();
+      final nextKeys = next.map(_zipItemKey).toSet();
+      setState(() {
+        _checkedKeys.removeWhere((k) => !nextKeys.contains(k));
+        _checkedKeys.addAll(nextKeys.difference(prevKeys));
+      });
+    });
+
+    if (items.isEmpty) return const SizedBox.shrink();
+
+    final selectedCount = _checkedKeys.length;
+    final bottomOffset = widget.taskActive ? 72.0 : 0.0;
+
+    return Positioned(
+      left: 0,
+      right: 0,
+      bottom: bottomOffset,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+          child: AnimatedSize(
+            duration: const Duration(milliseconds: 180),
+            alignment: Alignment.bottomCenter,
+            child: _expanded
+                ? _buildExpandedSheet(context, items, selectedCount)
+                : _buildCollapsedPill(context, items.length),
+          ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildCollapsedPill(BuildContext context, int count) {
+    final strings = AppStrings.of(context);
+    return Align(
+      alignment: Alignment.bottomCenter,
+      child: Material(
+        color: const Color(0xFF1E1E1E),
+        borderRadius: BorderRadius.circular(999),
+        elevation: 6,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(999),
+          onTap: () => setState(() => _expanded = true),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    const Icon(Icons.content_paste, color: dalxAccent, size: 20),
+                    Positioned(
+                      right: -6,
+                      top: -6,
+                      child: Container(
+                        constraints: const BoxConstraints(minWidth: 15, minHeight: 15),
+                        padding: const EdgeInsets.all(2),
+                        decoration: const BoxDecoration(color: dalxAccent, shape: BoxShape.circle),
+                        child: Text(
+                          '$count',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  strings.clipboardPanelItemCount(count),
+                  style: const TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(width: 2),
+                const Icon(Icons.keyboard_arrow_up, color: Colors.white54, size: 18),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildExpandedSheet(BuildContext context, List<ZipClipboardItem> items, int selectedCount) {
+    final strings = AppStrings.of(context);
+    return Material(
+      color: const Color(0xFF1E1E1E),
+      borderRadius: BorderRadius.circular(16),
+      elevation: 8,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 10, 6, 2),
+            child: Row(
+              children: [
+                const Icon(Icons.content_paste, color: dalxAccent, size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '${items.length} item',
+                    style: const TextStyle(color: Colors.white, fontSize: 13.5, fontWeight: FontWeight.w700),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close, color: Colors.white54, size: 18),
+                  tooltip: strings.clipboardCancelAll,
+                  onPressed: () => ref.read(zipClipboardProvider.notifier).clear(),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.keyboard_arrow_down, color: Colors.white54, size: 20),
+                  onPressed: () => setState(() => _expanded = false),
+                ),
+              ],
+            ),
+          ),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 260),
+            child: ListView.builder(
+              shrinkWrap: true,
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              itemCount: items.length,
+              itemBuilder: (context, index) {
+                final item = items[index];
+                final key = _zipItemKey(item);
+                final name = item.entryPath.split('/').last;
+                final zipName = item.zipPath.split(Platform.pathSeparator).last;
+                final checked = _checkedKeys.contains(key);
+
+                return InkWell(
+                  onTap: () => setState(() {
+                    if (checked) {
+                      _checkedKeys.remove(key);
+                    } else {
+                      _checkedKeys.add(key);
+                    }
+                  }),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    child: Row(
+                      children: [
+                        Checkbox(
+                          value: checked,
+                          activeColor: dalxAccent,
+                          onChanged: (_) => setState(() {
+                            if (checked) {
+                              _checkedKeys.remove(key);
+                            } else {
+                              _checkedKeys.add(key);
+                            }
+                          }),
+                        ),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(color: Colors.white, fontSize: 13),
+                              ),
+                              const SizedBox(height: 2),
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Flexible(
+                                    child: Text(
+                                      zipName, // asal ZIP-nya — penting sekarang karena bisa campur beberapa zip
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(color: Colors.white54, fontSize: 10.5),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                    decoration: BoxDecoration(
+                                      border: Border.all(color: Colors.white24),
+                                      borderRadius: BorderRadius.circular(999),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          item.isCut ? Icons.drive_file_move : Icons.copy,
+                                          size: 9,
+                                          color: Colors.white54,
+                                        ),
+                                        const SizedBox(width: 3),
+                                        Text(
+                                          item.isCut ? strings.clipboardTagMove : strings.clipboardTagCopy,
+                                          style: const TextStyle(color: Colors.white54, fontSize: 9.5),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close, size: 16, color: Colors.white54),
+                          tooltip: strings.clipboardRemoveItemTooltip,
+                          onPressed: () => ref.read(zipClipboardProvider.notifier).removeEntries(item.zipPath, [item.entryPath]),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+            child: SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: dalxAccent,
+                  disabledBackgroundColor: Colors.white12,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+                onPressed: (selectedCount == 0 || widget.currentPath == null)
+                    ? null
+                    : () {
+                        final selectedItems = items.where((i) => _checkedKeys.contains(_zipItemKey(i))).toList();
+                        widget.onPaste(selectedItems);
+                      },
+                child: Text(
+                  selectedCount > 0 ? strings.clipboardPasteHereCount(selectedCount) : strings.clipboardPasteHereEmpty,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

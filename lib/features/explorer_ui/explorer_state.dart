@@ -135,7 +135,7 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
   // pemanggil aktifnya juga (cuma nongol di komentar lama), aman
   // dibuang.
 
-  bool get hasPendingZipPaste => _zipClipboardNotifier.state != null;
+  bool get hasPendingZipPaste => _zipClipboardNotifier.state.isNotEmpty;
   bool get hasPendingFilePaste => _fileClipboardNotifier.state.isNotEmpty;
 
   Future<void> openFolder(String path) async {
@@ -296,32 +296,25 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
     state = state.copyWith(selectedPaths: {});
   }
 
-  /// Batalkan clipboard ZIP yang sedang menunggu di-paste. Dipanggil
-  /// dari tombol "Batal" di bar clipboard ZIP (bar lama, TIDAK
-  /// berubah — lihat _buildZipClipboardBar di explorer_screen.dart).
-  /// Clipboard file REGULER punya cancel-all sendiri di panel baru,
-  /// manipulasi fileClipboardProvider LANGSUNG dari widget (lihat
-  /// _ClipboardPanel), tidak lewat method ini lagi.
-  void cancelPendingPaste() {
-    _zipClipboardNotifier.clear();
-    state = state.copyWith(); // trigger rebuild
-  }
+  // cancelPendingPaste (versi lama, buat tombol "Batal" di bar ZIP
+  // lama) DIHAPUS — cancel-all clipboard ZIP sekarang manipulasi
+  // zipClipboardProvider LANGSUNG dari widget panel (mirip file
+  // clipboard, lihat _ZipClipboardPanel di explorer_screen.dart),
+  // tidak lewat ExplorerNotifier lagi.
 
-  /// Cek konflik nama KHUSUS clipboard ZIP — TIDAK berubah dari versi
-  /// lama. Dipanggil dari _buildZipClipboardBar SEBELUM pasteZipHere.
-  Future<List<String>> checkZipPasteConflicts() async {
+  /// Cek konflik nama buat subset [items] EKSPLISIT dari clipboard ZIP
+  /// (yang dicentang user di panel) — bukan implisit seluruh isi
+  /// clipboard, sama seperti [checkFilePasteConflicts].
+  Future<List<String>> checkZipPasteConflicts(List<ZipClipboardItem> items) async {
     final destination = state.currentPath;
-    if (destination == null) return [];
-
-    final zipClip = _zipClipboardNotifier.state;
-    if (zipClip == null) return [];
+    if (destination == null || items.isEmpty) return [];
 
     final conflicts = <String>[];
-    for (final path in zipClip.entryPaths) {
+    for (final item in items) {
       // Path dari zip clipboard pakai '/' (delimiter internal ZIP,
       // bukan Platform.pathSeparator) — split by '/' aman buat
       // dua-duanya karena Platform.pathSeparator di Android juga '/'.
-      final name = path.split('/').last;
+      final name = item.entryPath.split('/').last;
       final destPath = '$destination${Platform.pathSeparator}$name';
       if (await File(destPath).exists() || await Directory(destPath).exists()) {
         conflicts.add(name);
@@ -330,17 +323,31 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
     return conflicts;
   }
 
-  /// Tempel clipboard ZIP ke folder yang sedang dibuka — TIDAK
-  /// berubah dari versi lama.
-  Future<void> pasteZipHere({ConflictStrategy strategy = ConflictStrategy.renameAuto}) async {
+  /// Tempel entri ZIP TERPILIH (dicentang user di panel) ke folder
+  /// yang sedang dibuka. [items] bisa berasal dari BEBERAPA file ZIP
+  /// berbeda (clipboard sekarang akumulatif lintas zip) — dikelompokkan
+  /// per [zipPath] di sini, dijalankan sebagai task extract TERPISAH
+  /// per grup, karena TaskQueue.extractZipEntries cuma terima 1
+  /// zipPath per panggilan.
+  ///
+  /// TIDAK clear clipboard manual di sini — item yang berhasil
+  /// diantar hilang OTOMATIS lewat listener ZipEntriesExtracted di
+  /// ZipClipboardNotifier begitu task-nya SUKSES.
+  Future<void> pasteZipSelected(
+    List<ZipClipboardItem> items, {
+    ConflictStrategy strategy = ConflictStrategy.renameAuto,
+  }) async {
     final destination = state.currentPath;
-    if (destination == null) return;
+    if (destination == null || items.isEmpty) return;
 
-    final zipClip = _zipClipboardNotifier.state;
-    if (zipClip == null) return;
+    final byZip = <String, List<String>>{};
+    for (final item in items) {
+      byZip.putIfAbsent(item.zipPath, () => []).add(item.entryPath);
+    }
 
-    _zipClipboardNotifier.clear();
-    await _taskQueue.extractZipEntries(zipClip.zipPath, zipClip.entryPaths, destination);
+    for (final entry in byZip.entries) {
+      await _taskQueue.extractZipEntries(entry.key, entry.value, destination, strategy: strategy);
+    }
   }
 
   /// Cek konflik nama buat subset [paths] EKSPLISIT dari clipboard

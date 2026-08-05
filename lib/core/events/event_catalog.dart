@@ -124,6 +124,27 @@ class FileCopied extends DalXEvent {
   const FileCopied(this.sourcePaths, this.destinationPath);
 }
 
+/// Dipicu saat entri ZIP berhasil di-extract lewat clipboard ZIP
+/// (Copy/Cut dari ZipExplorerScreen -> Paste di folder asli), lewat
+/// Task Queue. BEDA dari FileCreated yang di-fire di task yang sama
+/// (itu generik, cuma bilang "ada folder baru di tujuan" buat
+/// explorer_ui refresh) — event ini SPESIFIK bawa entri mana aja yang
+/// berhasil, biar ZipClipboardNotifier bisa hapus item yang PAS itu
+/// aja dari clipboard (bukan clear semua).
+///
+/// Dibawa: [zipPath] — file ZIP sumbernya, [entryPaths] — daftar path
+/// entri DI DALAM zip (delimiter '/') yang berhasil di-extract.
+///
+/// Didengarkan oleh: core/clipboard (ZipClipboardNotifier, auto-hapus
+/// item yang sudah "diantar")
+///
+/// Dipicu oleh: task_queue, setelah extractZipEntries selesai SUKSES
+class ZipEntriesExtracted extends DalXEvent {
+  final String zipPath;
+  final List<String> entryPaths;
+  const ZipEntriesExtracted(this.zipPath, this.entryPaths);
+}
+
 /// Dipicu berkala selama sebuah task di Task Queue berjalan, untuk
 /// update progress bar.
 ///

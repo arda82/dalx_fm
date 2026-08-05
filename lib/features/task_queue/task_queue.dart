@@ -277,6 +277,15 @@ class TaskQueue extends StateNotifier<List<DalXTask>> {
   }) async {
     _updateTask(task.id, (t) => t.copyWith(status: TaskStatus.running));
 
+    // Path yang BENERAN berhasil dicopy/dipindah doang (bukan
+    // task.sourcePaths mentah) — item yang di-skip TIDAK masuk sini,
+    // biar FileCopied/FileMoved di bawah cuma laporin yang beneran
+    // sukses. Ini yang FileClipboardNotifier andalkan buat auto-hapus
+    // item dari clipboard (lihat core/clipboard/file_clipboard.dart)
+    // — kalau di-skip tetap ikut dilaporkan, item bakal kehapus dari
+    // clipboard padahal gak pernah beneran nyampe ke tujuan.
+    final actuallyProcessed = <String>[];
+
     try {
       for (var i = 0; i < task.sourcePaths.length; i++) {
         if (_cancelFlags[task.id] == true) break;
@@ -311,6 +320,7 @@ class TaskQueue extends StateNotifier<List<DalXTask>> {
           await _copyDirectoryRecursive(entity, Directory(destPath));
           if (isMove) await entity.delete(recursive: true);
         }
+        actuallyProcessed.add(sourcePath);
 
         final progress = (i + 1) / task.sourcePaths.length;
         _updateTask(task.id, (t) => t.copyWith(progress: progress));
@@ -323,10 +333,12 @@ class TaskQueue extends StateNotifier<List<DalXTask>> {
       }
 
       _updateTask(task.id, (t) => t.copyWith(status: TaskStatus.completed, progress: 1.0));
-      if (isMove) {
-        _eventBus.fire(FileMoved(task.sourcePaths, task.destinationPath!));
-      } else {
-        _eventBus.fire(FileCopied(task.sourcePaths, task.destinationPath!));
+      if (actuallyProcessed.isNotEmpty) {
+        if (isMove) {
+          _eventBus.fire(FileMoved(actuallyProcessed, task.destinationPath!));
+        } else {
+          _eventBus.fire(FileCopied(actuallyProcessed, task.destinationPath!));
+        }
       }
       _eventBus.fire(TaskCompleted(task.id, success: true));
     } catch (e) {
@@ -504,11 +516,20 @@ class TaskQueue extends StateNotifier<List<DalXTask>> {
   /// (rekursif) ikut ke-extract, dengan struktur folder itu sendiri
   /// dipertahankan sebagai folder baru di [destinationDir] (bukan
   /// isinya "tumpah" rata di destinationDir).
+  ///
+  /// [strategy] menentukan perlakuan kalau nama TOP-LEVEL entri
+  /// (nama file/folder yang dipilih, BUKAN nama file di dalamnya
+  /// satu-satu) sudah dipakai di [destinationDir] — resolusinya per
+  /// entri TERPILIH, bukan per file individual di dalam folder yang
+  /// dipilih (biar "Lewati"/"Ganti Nama Otomatis" konsisten: kalau
+  /// pilih folder, seluruh folder itu yang dilewati/di-rename, bukan
+  /// isinya berantakan sebagian ke-rename sebagian nggak).
   Future<void> extractZipEntries(
     String zipPath,
     List<String> entryFullPaths,
-    String destinationDir,
-  ) async {
+    String destinationDir, {
+    ConflictStrategy strategy = ConflictStrategy.renameAuto,
+  }) async {
     final task = DalXTask(
       id: _newTaskId(),
       type: TaskType.extract,
@@ -522,11 +543,43 @@ class TaskQueue extends StateNotifier<List<DalXTask>> {
       final bytes = await File(zipPath).readAsBytes();
       final archive = ZipDecoder().decodeBytes(bytes);
 
-      // Kumpulin dulu semua file (bukan folder marker) yang match
-      // salah satu entryFullPaths (persis ATAU descendant-nya kalau
-      // itu folder) — biar tau total buat hitung progress duluan.
+      // Resolusi konflik nama DULUAN per entri TOP-LEVEL yang dipilih,
+      // SEBELUM kumpulin file-file di dalamnya satu-satu.
+      // outputNameFor[entryFullPath] = nama hasil resolusi (null =
+      // entri ini DILEWATI total, strategy skip — TIDAK ikut
+      // di-extract sama sekali, dan TIDAK dianggap "berhasil diantar"
+      // buat clipboard, lihat extractedEntries di bawah).
+      final outputNameFor = <String, String?>{};
+      for (final entryFullPath in entryFullPaths) {
+        final originalName = entryFullPath.split('/').last;
+        var outputName = originalName;
+        final destPath = '$destinationDir${Platform.pathSeparator}$originalName';
+        final destExists = await File(destPath).exists() || await Directory(destPath).exists();
+        if (destExists) {
+          if (strategy == ConflictStrategy.skip) {
+            outputNameFor[entryFullPath] = null;
+            continue;
+          } else if (strategy == ConflictStrategy.renameAuto) {
+            final uniquePath = await _resolveUniqueDestPath(destinationDir, originalName);
+            outputName = uniquePath.split(Platform.pathSeparator).last;
+          }
+          // ConflictStrategy.overwrite: outputName dipakai apa adanya
+          // — sama kayak _runCopyOrMove, isi yang sudah ada bakal
+          // ketimpa/di-merge.
+        }
+        outputNameFor[entryFullPath] = outputName;
+      }
+
+      // Kumpulin semua file (bukan folder marker) yang match salah
+      // satu entryFullPaths (persis ATAU descendant-nya kalau itu
+      // folder) yang TIDAK di-skip — biar tau total buat hitung
+      // progress duluan. relativePath pakai outputName HASIL RESOLUSI
+      // (bukan nama asli) sebagai segmen pertama.
       final matches = <MapEntry<String, ArchiveFile>>[];
       for (final entryFullPath in entryFullPaths) {
+        final outputName = outputNameFor[entryFullPath];
+        if (outputName == null) continue; // di-skip
+
         final segments = entryFullPath.split('/');
         final parentPrefix = segments.length > 1 ? '${segments.sublist(0, segments.length - 1).join('/')}/' : '';
         for (final file in archive.files) {
@@ -535,13 +588,12 @@ class TaskQueue extends StateNotifier<List<DalXTask>> {
           final isSelf = name == entryFullPath;
           final isDescendant = name.startsWith('$entryFullPath/');
           if (!isSelf && !isDescendant) continue;
-          // Substring dari parentPrefix biar nama folder yang dipilih
-          // TETAP jadi segmen pertama di destination (bukan "tumpah"
-          // rata) — mis. pilih folder "docs/notes" -> hasil di
-          // destination jadi "notes/isi-di-dalamnya", bukan langsung
-          // "isi-di-dalamnya" tumpah di destinationDir.
-          final relativePath = name.substring(parentPrefix.length);
-          matches.add(MapEntry(relativePath, file));
+          // Suffix SETELAH nama asli entri (bisa '' buat file tunggal,
+          // atau '/sisa/path...' buat isi folder) ditempel ke
+          // outputName HASIL RESOLUSI — biar rename top-level ikut
+          // "menular" ke semua file di dalamnya.
+          final relativeSuffix = name.substring(parentPrefix.length + segments.last.length);
+          matches.add(MapEntry('$outputName$relativeSuffix', file));
         }
       }
 
@@ -568,6 +620,14 @@ class TaskQueue extends StateNotifier<List<DalXTask>> {
 
       _updateTask(task.id, (t) => t.copyWith(status: TaskStatus.completed, progress: 1.0));
       _eventBus.fire(FileCreated(destinationDir, isFolder: true));
+      // Entri yang BENERAN diantar doang (bukan entryFullPaths
+      // mentah) — entri yang di-skip TIDAK dilaporkan "berhasil",
+      // biar tetap nangkring di clipboard (bisa dicoba lagi ke
+      // tujuan lain), bukan ikut kehapus padahal gak pernah nyampe.
+      final extractedEntries = entryFullPaths.where((e) => outputNameFor[e] != null).toList();
+      if (extractedEntries.isNotEmpty) {
+        _eventBus.fire(ZipEntriesExtracted(zipPath, extractedEntries));
+      }
       _eventBus.fire(TaskCompleted(task.id, success: true));
     } catch (e) {
       debugPrint('Task extractZipEntries gagal: $e');
