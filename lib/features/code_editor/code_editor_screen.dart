@@ -63,7 +63,7 @@ import 'package:flutter/services.dart' show MethodChannel, PlatformException;
 import 'package:html/dom.dart' as dom;
 import 'package:html/parser.dart' as html_parser;
 import 'package:re_editor/re_editor.dart';
-import 'package:re_highlight/styles/atom-one-dark.dart';
+import 'package:re_highlight/styles/monokai.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'language_detector.dart';
 
@@ -766,7 +766,7 @@ class _CodeEditorScreenState extends State<CodeEditorScreen> {
                       languages: {
                         language.id: CodeHighlightThemeMode(mode: language.mode),
                       },
-                      theme: atomOneDarkTheme,
+                      theme: monokai,
                     ),
             ),
             indicatorBuilder: (context, editingController, chunkController, notifier) {
