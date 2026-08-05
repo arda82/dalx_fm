@@ -9,15 +9,6 @@
 // Operasi Copy/Move/Delete di sini memanggil TaskQueue (bukan
 // dart:io langsung) — file_engine cuma untuk operasi ringan (New
 // Folder, New File, Rename, Duplicate) dan navigasi.
-//
-// REVISI (panel clipboard mengambang): file clipboard (bukan zip)
-// sekarang list akumulatif (lihat file_clipboard.dart). Paste-nya
-// TERPISAH dari zip clipboard total — pasteSelected/checkFilePaste-
-// Conflicts baru khusus file clipboard, terima [paths] EKSPLISIT
-// (subset yang dicentang user di panel), bukan implisit baca seluruh
-// isi clipboard kayak sebelumnya. pasteZipHere/checkZipPasteConflicts
-// TIDAK berubah sama sekali dari versi lama — zip clipboard tetap
-// single-batch, di luar scope revisi ini.
 
 import 'dart:async';
 import 'dart:io';
@@ -105,9 +96,16 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
           // _fileEngine.sortMode). SortMode.name di sini cuma
           // placeholder sesaat sebelum itu.
         )) {
+    // FileEngine juga perlu tau default sort/hidden dari awal, biar
+    // openFolder() pertama kali langsung konsisten sama state di atas
+    // (bukan cuma tampilan awal doang yang keliatan default, tapi
+    // urutan/filter hasil baca folder-nya juga).
     _fileEngine.sortMode = state.sortMode;
     _fileEngine.showHidden = state.showHidden;
 
+    // explorer_ui cukup dengar event — tidak perlu tahu modul mana
+    // yang memicunya (file_engine untuk navigasi/rename/create/
+    // duplicate, TaskQueue untuk copy/move/delete yang lebih berat).
     eventBus.stream.whereEventType<FolderOpened>().listen((_) {
       _syncFromCurrentFolder();
     });
@@ -130,6 +128,15 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
 
   bool get canGoBack => _fileEngine.canGoBack;
   bool get atFilesystemRoot => _fileEngine.atFilesystemRoot;
+
+  // hasCutPaths (versi lama, single-mode global buat SATU batch)
+  // DIHAPUS — clipboard sekarang per-item, bisa campur Copy+Move
+  // sekaligus, jadi tidak ada lagi "satu mode buat semua". Tidak ada
+  // pemanggil aktifnya juga (cuma nongol di komentar lama), aman
+  // dibuang.
+
+  bool get hasPendingZipPaste => _zipClipboardNotifier.state != null;
+  bool get hasPendingFilePaste => _fileClipboardNotifier.state.isNotEmpty;
 
   Future<void> openFolder(String path) async {
     state = state.copyWith(isLoading: true, errorMessage: null, selectedPaths: {});
@@ -258,31 +265,12 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
     } catch (e) {
       state = state.copyWith(isLoading: false, errorMessage: e.toString());
     }
-  }// hasCutPaths (versi lama, single-mode global) DIHAPUS — clipboard
-  // sekarang per-item bisa campur Copy+Move, tidak ada lagi "satu
-  // mode buat semua". Ga ada pemanggil aktifnya juga (cuma nongol di
-  // komentar), aman dibuang.
-
-  bool get hasPendingZipPaste => _zipClipboardNotifier.state != null;
-  bool get hasPendingFilePaste => _fileClipboardNotifier.state.isNotEmpty;
-
-  Future<void> openFolder(String path) async {
-    state = state.copyWith(isLoading: true, errorMessage: null);
-    try {
-      await _fileEngine.openFolder(path);
-      final items = await _fileEngine.refresh();
-      state = state.copyWith(currentPath: path, items: items, isLoading: false, sortMode: _fileEngine.sortMode);
-    } catch (e) {
-      state = state.copyWith(isLoading: false, errorMessage: e.toString());
-    }
   }
-
-  // ... (method navigasi/refresh lain di antara sini TIDAK berubah,
-  // lihat file lama kalau butuh referensi lengkap — cuma potong biar
-  // fokus ke bagian yang beneran diedit)
 
   // ---------------- Copy / Cut / Paste / Delete (via TaskQueue) ----------------
 
+  /// Hapus semua item yang sedang terpilih. Operasi berjalan lewat
+  /// TaskQueue (async, punya progress) — UI tidak nge-block.
   Future<void> deleteSelected() async {
     final paths = state.selectedPaths.toList();
     if (paths.isEmpty) return;
@@ -291,11 +279,12 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
   }
 
   /// Menandai item terpilih untuk di-copy. AKUMULATIF ke clipboard
-  /// (lihat FileClipboardNotifier.add) — item lama yang belum
-  /// di-paste TIDAK hilang.
+  /// (lihat FileClipboardNotifier.add di core/clipboard/file_clipboard.
+  /// dart) — item lama yang belum di-paste TIDAK hilang, beda dari
+  /// versi lama yang mengganti seluruh isi clipboard.
   void copySelected() {
     _fileClipboardNotifier.add(state.selectedPaths.toList(), isCut: false);
-    _zipClipboardNotifier.clear(); // cuma 1 JENIS clipboard aktif (file vs zip), bukan soal Copy vs Move lagi
+    _zipClipboardNotifier.clear(); // cuma 1 JENIS clipboard aktif (file vs zip) dalam satu waktu
     state = state.copyWith(selectedPaths: {});
   }
 
@@ -308,17 +297,18 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
   }
 
   /// Batalkan clipboard ZIP yang sedang menunggu di-paste. Dipanggil
-  /// dari tombol "Batal" di bar clipboard ZIP (bar lama, tidak
-  /// berubah). Clipboard file REGULER punya cancel-all sendiri di
-  /// panel baru (langsung lewat fileClipboardProvider, lihat
-  /// explorer_screen.dart _ClipboardPanel) — tidak lewat sini lagi.
+  /// dari tombol "Batal" di bar clipboard ZIP (bar lama, TIDAK
+  /// berubah — lihat _buildZipClipboardBar di explorer_screen.dart).
+  /// Clipboard file REGULER punya cancel-all sendiri di panel baru,
+  /// manipulasi fileClipboardProvider LANGSUNG dari widget (lihat
+  /// _ClipboardPanel), tidak lewat method ini lagi.
   void cancelPendingPaste() {
     _zipClipboardNotifier.clear();
-    state = state.copyWith();
+    state = state.copyWith(); // trigger rebuild
   }
 
-  /// Cek konflik nama KHUSUS clipboard ZIP (tidak berubah dari versi
-  /// lama).
+  /// Cek konflik nama KHUSUS clipboard ZIP — TIDAK berubah dari versi
+  /// lama. Dipanggil dari _buildZipClipboardBar SEBELUM pasteZipHere.
   Future<List<String>> checkZipPasteConflicts() async {
     final destination = state.currentPath;
     if (destination == null) return [];
@@ -328,6 +318,9 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
 
     final conflicts = <String>[];
     for (final path in zipClip.entryPaths) {
+      // Path dari zip clipboard pakai '/' (delimiter internal ZIP,
+      // bukan Platform.pathSeparator) — split by '/' aman buat
+      // dua-duanya karena Platform.pathSeparator di Android juga '/'.
       final name = path.split('/').last;
       final destPath = '$destination${Platform.pathSeparator}$name';
       if (await File(destPath).exists() || await Directory(destPath).exists()) {
@@ -337,7 +330,8 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
     return conflicts;
   }
 
-  /// Tempel clipboard ZIP ke folder saat ini (tidak berubah).
+  /// Tempel clipboard ZIP ke folder yang sedang dibuka — TIDAK
+  /// berubah dari versi lama.
   Future<void> pasteZipHere({ConflictStrategy strategy = ConflictStrategy.renameAuto}) async {
     final destination = state.currentPath;
     if (destination == null) return;
@@ -350,9 +344,10 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
   }
 
   /// Cek konflik nama buat subset [paths] EKSPLISIT dari clipboard
-  /// file reguler — [paths] datang dari item yang DICENTANG user di
-  /// panel, bukan implisit seluruh isi clipboard (beda dari versi
-  /// lama, karena sekarang paste bisa parsial).
+  /// file reguler. [paths] datang dari item yang DICENTANG user di
+  /// panel (_ClipboardPanel), bukan implisit seluruh isi clipboard —
+  /// beda dari versi lama, karena sekarang paste bisa parsial (bisa
+  /// pilih sebagian item buat ditempel, sisanya nunggu tujuan lain).
   Future<List<String>> checkFilePasteConflicts(List<String> paths) async {
     final destination = state.currentPath;
     if (destination == null || paths.isEmpty) return [];
@@ -370,15 +365,17 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
 
   /// Tempel item TERPILIH (dicentang user di panel) ke folder yang
   /// sedang dibuka. [copyPaths]/[movePaths] sudah dipisah oleh
-  /// pemanggil (explorer_screen.dart) berdasarkan mode per-item —
-  /// dijalankan sebagai DUA task terpisah kalau campuran, karena
-  /// TaskQueue.copy/move masing-masing cuma terima satu mode per
-  /// panggilan.
+  /// pemanggil (explorer_screen.dart _handleFilePasteSelected)
+  /// berdasarkan mode per-item — dijalankan sebagai DUA task terpisah
+  /// kalau campuran, karena TaskQueue.copy/move masing-masing cuma
+  /// terima satu mode per panggilan.
   ///
   /// TIDAK clear clipboard manual di sini — item yang berhasil
   /// diantar hilang OTOMATIS lewat listener FileCopied/FileMoved di
-  /// FileClipboardNotifier begitu task-nya SUKSES. Kalau task gagal,
-  /// item otomatis tetap ada, siap dicoba paste ulang.
+  /// FileClipboardNotifier begitu task-nya SUKSES (lihat
+  /// core/clipboard/file_clipboard.dart). Kalau task gagal, event itu
+  /// tidak pernah fire, jadi item otomatis TETAP ADA di clipboard,
+  /// siap dicoba paste ulang.
   Future<void> pasteSelected(
     List<String> copyPaths,
     List<String> movePaths, {
@@ -394,24 +391,6 @@ class ExplorerNotifier extends StateNotifier<ExplorerState> {
       await _taskQueue.move(movePaths, destination, strategy: strategy);
     }
   }
-
-  // ... (compressSelected, checkExtractConflict, extractArchive,
-  // toggleShowHidden, setSortMode, toggleViewMode, _syncFromCurrentFolder
-  // TIDAK BERUBAH — tetap sama persis kayak file lama, tidak
-  // disalin ulang di sini biar tidak berulang)
-}
-
-final explorerProvider = StateNotifierProvider.family<ExplorerNotifier, ExplorerState, String>(
-  (ref, rootPath) {
-    final fileEngine = ref.watch(fileEngineProvider(rootPath));
-    final taskQueue = ref.watch(taskQueueProvider.notifier);
-    final eventBus = ref.watch(eventBusProvider);
-    final defaults = ref.read(explorerDefaultsProvider);
-    final zipClipboardNotifier = ref.read(zipClipboardProvider.notifier);
-    final fileClipboardNotifier = ref.read(fileClipboardProvider.notifier);
-    return ExplorerNotifier(fileEngine, taskQueue, eventBus, defaults, zipClipboardNotifier, fileClipboardNotifier);
-  },
-);
 
   // ---------------- Fase 5 & Fase 8 Pilar #2: Archive (Compress/Extract) ----------------
 
