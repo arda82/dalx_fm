@@ -766,7 +766,7 @@ class _CodeEditorScreenState extends State<CodeEditorScreen> {
                       languages: {
                         language.id: CodeHighlightThemeMode(mode: language.mode),
                       },
-                      theme: monokai,
+                      theme: monokaiTheme,
                     ),
             ),
             indicatorBuilder: (context, editingController, chunkController, notifier) {
