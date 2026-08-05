@@ -109,6 +109,15 @@ class AppStrings {
   String get conflictOverwrite => _t('Timpa', 'Overwrite');
   String get conflictRenameAuto => _t('Ganti Nama Otomatis', 'Auto Rename');
 
+  // ---------------- Explorer — Clipboard Panel file reguler (mengambang) ----------------
+  String clipboardPanelItemCount(int count) => _t('$count item di clipboard', '$count item(s) in clipboard');
+  String get clipboardCancelAll => _t('Batalkan semua', 'Cancel all');
+  String get clipboardRemoveItemTooltip => _t('Hapus dari clipboard', 'Remove from clipboard');
+  String clipboardPasteHereCount(int count) => _t('Tempel di sini ($count dipilih)', 'Paste here ($count selected)');
+  String get clipboardPasteHereEmpty => _t('Pilih file buat ditempel', 'Select files to paste');
+  String get clipboardTagCopy => _t('Copy', 'Copy');
+  String get clipboardTagMove => _t('Move', 'Move');
+
   // ---------------- Explorer — Install APK Dialog ----------------
   String get installPermissionTitle => _t('Izin diperlukan', 'Permission required');
   String get installPermissionBody =>

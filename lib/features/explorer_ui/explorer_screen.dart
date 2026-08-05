@@ -113,12 +113,11 @@ class ExplorerScreen extends ConsumerWidget {
     // nilainya (Provider<void>).
     ref.watch(thumbnailCacheClearListenerProvider);
 
-    // Watch clipboard global (bukan per-rootPath) biar bar Paste di
-    // bawah layar reaktif ikut update walau Copy/Cut-nya dipencet
-    // dari instance ExplorerScreen root LAIN (mis. Internal Storage
-    // -> paste di SD Card). Nilainya sendiri tidak dipakai langsung
-    // di sini — notifier.hasPendingPaste/hasCutPaths yang baca isinya
-    // — ini cuma buat trigger rebuild.
+    // Watch clipboard global (bukan per-rootPath) biar reaktif ikut
+    // update walau Copy/Cut-nya dipencet dari instance ExplorerScreen
+    // root LAIN (mis. Internal Storage -> paste di SD Card). Dipakai
+    // langsung lewat notifier.hasPendingFilePaste/hasPendingZipPaste
+    // di bawah — ini juga trigger rebuild buat _ClipboardPanel.
     ref.watch(fileClipboardProvider);
     ref.watch(zipClipboardProvider);
 
@@ -188,33 +187,42 @@ class ExplorerScreen extends ConsumerWidget {
             ? _buildActionModeToolbar(context, ref, explorerState, notifier)
             : _buildNormalToolbar(context, ref, explorerState, notifier),
         drawer: pickMode ? null : const AppDrawer(),
-        body: Column(
+        // Stack (bukan Column polos) — panel clipboard file reguler
+        // sekarang MENGAMBANG (overlap konten), bukan dorong layout
+        // kayak bar lama. Bar clipboard ZIP tetap versi lama (dorong
+        // layout di dalam Column), di luar scope revisi ini.
+        body: Stack(
           children: [
-            Expanded(
-              child: MediaQuery(
-                // Fase 7 + fix breadcrumb: breadcrumb SEKARANG ikut
-                // dibungkus di sini juga (dulu di luar, makanya gak
-                // ikut Settings > Font Size). AppBar/dialog tetap gak
-                // kena karena mereka di luar Column body ini sama
-                // sekali, sesuai desain awal "Font Size" cuma buat
-                // konten Explorer.
-                data: MediaQuery.of(context).copyWith(
-                  textScaler: TextScaler.linear(ref.watch(fontScaleProvider)),
-                ),
-                child: Column(
-                  children: [
-                    if (!explorerState.isSelectMode || pickMode)
-                      _buildBreadcrumb(context, ref, explorerState, notifier),
-                    if (!explorerState.isSelectMode || pickMode) const Divider(height: 1),
-                    Expanded(
-                      child: _buildFileList(context, ref, explorerState, notifier),
+            Column(
+              children: [
+                Expanded(
+                  child: MediaQuery(
+                    data: MediaQuery.of(context).copyWith(
+                      textScaler: TextScaler.linear(ref.watch(fontScaleProvider)),
                     ),
-                  ],
+                    child: Column(
+                      children: [
+                        if (!explorerState.isSelectMode || pickMode)
+                          _buildBreadcrumb(context, ref, explorerState, notifier),
+                        if (!explorerState.isSelectMode || pickMode) const Divider(height: 1),
+                        Expanded(
+                          child: _buildFileList(context, ref, explorerState, notifier),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
-              ),
+                if (!pickMode && notifier.hasPendingZipPaste)
+                  _buildZipClipboardBar(context, ref, notifier),
+              ],
             ),
-            if (!pickMode && notifier.hasPendingPaste)
-              _buildClipboardBar(context, ref, notifier),
+            if (!pickMode && notifier.hasPendingFilePaste)
+              _ClipboardPanel(
+                currentPath: explorerState.currentPath,
+                taskActive: ref.watch(taskQueueProvider).any((t) => t.isActive),
+                onPaste: (copyPaths, movePaths) =>
+                    _handleFilePasteSelected(context, notifier, copyPaths, movePaths),
+              ),
           ],
         ),
       ),
@@ -737,14 +745,13 @@ class ExplorerScreen extends ConsumerWidget {
     );
   }
 
-  // ---------------- Clipboard Bar (bawah layar) ----------------
+  // ---------------- Clipboard Bar ZIP (bawah layar, TIDAK BERUBAH) ----------------
   //
-  // Muncul selama ada item copy/cut yang belum di-paste. Cuma 2
-  // tombol: Batal (buang clipboard, tidak jadi apa-apa) dan Tempel
-  // (paste ke folder yang sedang dibuka — lewat cek konflik nama
-  // dulu kalau perlu).
+  // Khusus clipboard ZIP (Copy/Cut dari ZipExplorerScreen) — tetap
+  // versi simpel satu-batch, Batal/Tempel doang. Clipboard file
+  // reguler pindah ke _ClipboardPanel (mengambang, lihat di bawah).
 
-  Widget _buildClipboardBar(BuildContext context, WidgetRef ref, ExplorerNotifier notifier) {
+  Widget _buildZipClipboardBar(BuildContext context, WidgetRef ref, ExplorerNotifier notifier) {
     final strings = AppStrings.of(context);
     return SafeArea(
       top: false,
@@ -754,7 +761,7 @@ class ExplorerScreen extends ConsumerWidget {
         child: Row(
           children: [
             Expanded(
-              child: _ClipboardBarButton(
+              child: _ZipClipboardBarButton(
                 icon: Icons.close,
                 label: strings.clipboardCancel,
                 onTap: notifier.cancelPendingPaste,
@@ -762,11 +769,11 @@ class ExplorerScreen extends ConsumerWidget {
             ),
             Container(width: 1, height: 36, color: dalxAccent.withOpacity(0.25)),
             Expanded(
-              child: _ClipboardBarButton(
+              child: _ZipClipboardBarButton(
                 icon: Icons.content_paste,
                 label: strings.clipboardPaste,
                 color: dalxAccent,
-                onTap: () => _handlePasteWithConflictCheck(context, notifier),
+                onTap: () => _handleZipPasteWithConflictCheck(context, notifier),
               ),
             ),
           ],
@@ -775,23 +782,44 @@ class ExplorerScreen extends ConsumerWidget {
     );
   }
 
-  // Cek dulu apakah ada nama yang bentrok di folder tujuan. Kalau
-  // ada, tanya user mau Lewati/Timpa/Ganti Nama Otomatis lewat
-  // dialog. Kalau user membatalkan dialog itu, paste dibatalkan
-  // total (clipboard TETAP ada, supaya bisa dicoba lagi/paste di
-  // folder lain).
-  Future<void> _handlePasteWithConflictCheck(BuildContext context, ExplorerNotifier notifier) async {
-    final conflicts = await notifier.checkPasteConflicts();
+  Future<void> _handleZipPasteWithConflictCheck(BuildContext context, ExplorerNotifier notifier) async {
+    final conflicts = await notifier.checkZipPasteConflicts();
 
     var strategy = ConflictStrategy.renameAuto;
     if (conflicts.isNotEmpty) {
       if (!context.mounted) return;
       final chosen = await _showConflictDialog(context, conflicts);
-      if (chosen == null) return; // dibatalkan, clipboard tetap ada
+      if (chosen == null) return;
       strategy = chosen;
     }
 
-    await notifier.pasteHere(strategy: strategy);
+    await notifier.pasteZipHere(strategy: strategy);
+  }
+
+  // ---------------- Clipboard Panel file reguler (BARU, mengambang) ----------------
+  //
+  // Dipanggil dari _ClipboardPanel begitu user tap "Tempel di sini"
+  // dengan subset item yang dicentang. Alur cek-konfliknya SAMA
+  // persis kayak zip (dialog Lewati/Timpa/Ganti Nama Otomatis), cuma
+  // sumber paths-nya eksplisit dari checklist, bukan seluruh clipboard.
+  Future<void> _handleFilePasteSelected(
+    BuildContext context,
+    ExplorerNotifier notifier,
+    List<String> copyPaths,
+    List<String> movePaths,
+  ) async {
+    final allPaths = [...copyPaths, ...movePaths];
+    final conflicts = await notifier.checkFilePasteConflicts(allPaths);
+
+    var strategy = ConflictStrategy.renameAuto;
+    if (conflicts.isNotEmpty) {
+      if (!context.mounted) return;
+      final chosen = await _showConflictDialog(context, conflicts);
+      if (chosen == null) return; // dibatalkan, item TETAP di clipboard
+      strategy = chosen;
+    }
+
+    await notifier.pasteSelected(copyPaths, movePaths, strategy: strategy);
   }
 
   Future<ConflictStrategy?> _showConflictDialog(BuildContext context, List<String> conflictNames) {
@@ -1232,16 +1260,16 @@ class _MoreMenuButton extends StatelessWidget {
   }
 }
 
-// Tombol icon+label di clipboard bar bawah — dibuat lebih besar
+// Tombol icon+label di bar clipboard ZIP bawah — dibuat lebih besar
 // (dibanding IconButton toolbar biasa) supaya gampang di-tap dan
 // jelas apa fungsinya tanpa perlu tooltip.
-class _ClipboardBarButton extends ConsumerWidget {
+class _ZipClipboardBarButton extends ConsumerWidget {
   final IconData icon;
   final String label;
   final Color? color;
   final VoidCallback onTap;
 
-  const _ClipboardBarButton({
+  const _ZipClipboardBarButton({
     required this.icon,
     required this.label,
     required this.onTap,
@@ -1270,6 +1298,301 @@ class _ClipboardBarButton extends ConsumerWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ---------------- Clipboard Panel file reguler (BARU, mengambang) ----------------
+//
+// Nunjukin isi fileClipboardProvider (list ClipboardItem, lihat
+// core/clipboard/file_clipboard.dart) sebagai panel mengambang di
+// pojok bawah layar Explorer. Icon+badge jumlah kalau collapsed,
+// checklist per item kalau expanded. Cancel-all dan hapus per-item
+// LANGSUNG manipulasi fileClipboardProvider (provider global, tidak
+// perlu lewat ExplorerNotifier) — cuma "Tempel di sini" yang lewat
+// [onPaste] karena butuh currentPath instance Explorer INI.
+class _ClipboardPanel extends ConsumerStatefulWidget {
+  final String? currentPath;
+  final bool taskActive; // true = TaskProgressBanner kemungkinan lagi nongol, panel digeser ke atas biar ga numpuk
+  final Future<void> Function(List<String> copyPaths, List<String> movePaths) onPaste;
+
+  const _ClipboardPanel({
+    required this.currentPath,
+    required this.taskActive,
+    required this.onPaste,
+  });
+
+  @override
+  ConsumerState<_ClipboardPanel> createState() => _ClipboardPanelState();
+}
+
+class _ClipboardPanelState extends ConsumerState<_ClipboardPanel> {
+  bool _expanded = true;
+  final Set<String> _checkedPaths = {};
+
+  @override
+  void initState() {
+    super.initState();
+    // Item yang udah ada di clipboard SEBELUM panel ini pertama kali
+    // muncul — default semua dicentang.
+    _checkedPaths.addAll(ref.read(fileClipboardProvider).map((i) => i.path));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final items = ref.watch(fileClipboardProvider);
+
+    // Item BARU yang nambah belakangan (mis. user Copy lagi dari
+    // folder lain selagi panel ini kebuka) otomatis ikut dicentang.
+    // Item yang udah HILANG (sukses diantar / dihapus manual) dibuang
+    // dari set biar ga numpuk state basi.
+    ref.listen<List<ClipboardItem>>(fileClipboardProvider, (previous, next) {
+      final prevPaths = (previous ?? const []).map((i) => i.path).toSet();
+      final nextPaths = next.map((i) => i.path).toSet();
+      setState(() {
+        _checkedPaths.removeWhere((p) => !nextPaths.contains(p));
+        _checkedPaths.addAll(nextPaths.difference(prevPaths));
+      });
+    });
+
+    if (items.isEmpty) return const SizedBox.shrink();
+
+    final selectedCount = _checkedPaths.length;
+    // TaskProgressBanner nempel persis di bottom:0 (lihat main.dart) —
+    // digeser ke atas biar ga ketiban kalau lagi ada task aktif.
+    final bottomOffset = widget.taskActive ? 72.0 : 0.0;
+
+    return Positioned(
+      left: 0,
+      right: 0,
+      bottom: bottomOffset,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+          child: AnimatedSize(
+            duration: const Duration(milliseconds: 180),
+            alignment: Alignment.bottomCenter,
+            child: _expanded
+                ? _buildExpandedSheet(context, items, selectedCount)
+                : _buildCollapsedPill(items.length),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCollapsedPill(int count) {
+    final strings = AppStrings.of(context);
+    return Align(
+      alignment: Alignment.bottomCenter,
+      child: Material(
+        color: const Color(0xFF1E1E1E),
+        borderRadius: BorderRadius.circular(999),
+        elevation: 6,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(999),
+          onTap: () => setState(() => _expanded = true),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    const Icon(Icons.content_paste, color: dalxAccent, size: 20),
+                    Positioned(
+                      right: -6,
+                      top: -6,
+                      child: Container(
+                        constraints: const BoxConstraints(minWidth: 15, minHeight: 15),
+                        padding: const EdgeInsets.all(2),
+                        decoration: const BoxDecoration(color: dalxAccent, shape: BoxShape.circle),
+                        child: Text(
+                          '$count',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  strings.clipboardPanelItemCount(count),
+                  style: const TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(width: 2),
+                const Icon(Icons.keyboard_arrow_up, color: Colors.white54, size: 18),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildExpandedSheet(BuildContext context, List<ClipboardItem> items, int selectedCount) {
+    final strings = AppStrings.of(context);
+    return Material(
+      color: const Color(0xFF1E1E1E),
+      borderRadius: BorderRadius.circular(16),
+      elevation: 8,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 10, 6, 2),
+            child: Row(
+              children: [
+                const Icon(Icons.content_paste, color: dalxAccent, size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '${items.length} item',
+                    style: const TextStyle(color: Colors.white, fontSize: 13.5, fontWeight: FontWeight.w700),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close, color: Colors.white54, size: 18),
+                  tooltip: strings.clipboardCancelAll,
+                  onPressed: () => ref.read(fileClipboardProvider.notifier).clear(),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.keyboard_arrow_down, color: Colors.white54, size: 20),
+                  onPressed: () => setState(() => _expanded = false),
+                ),
+              ],
+            ),
+          ),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 260),
+            child: ListView.builder(
+              shrinkWrap: true,
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              itemCount: items.length,
+              itemBuilder: (context, index) {
+                final item = items[index];
+                final name = item.path.split(Platform.pathSeparator).last;
+                final parentName = item.path.contains(Platform.pathSeparator)
+                    ? item.path.substring(0, item.path.lastIndexOf(Platform.pathSeparator)).split(Platform.pathSeparator).last
+                    : '';
+                final checked = _checkedPaths.contains(item.path);
+
+                return InkWell(
+                  onTap: () => setState(() {
+                    if (checked) {
+                      _checkedPaths.remove(item.path);
+                    } else {
+                      _checkedPaths.add(item.path);
+                    }
+                  }),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    child: Row(
+                      children: [
+                        Checkbox(
+                          value: checked,
+                          activeColor: dalxAccent,
+                          onChanged: (_) => setState(() {
+                            if (checked) {
+                              _checkedPaths.remove(item.path);
+                            } else {
+                              _checkedPaths.add(item.path);
+                            }
+                          }),
+                        ),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(color: Colors.white, fontSize: 13),
+                              ),
+                              const SizedBox(height: 2),
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Flexible(
+                                    child: Text(
+                                      parentName,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(color: Colors.white54, fontSize: 10.5),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                    decoration: BoxDecoration(
+                                      border: Border.all(color: Colors.white24),
+                                      borderRadius: BorderRadius.circular(999),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          item.isCut ? Icons.drive_file_move : Icons.copy,
+                                          size: 9,
+                                          color: Colors.white54,
+                                        ),
+                                        const SizedBox(width: 3),
+                                        Text(
+                                          item.isCut ? strings.clipboardTagMove : strings.clipboardTagCopy,
+                                          style: const TextStyle(color: Colors.white54, fontSize: 9.5),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close, size: 16, color: Colors.white54),
+                          tooltip: strings.clipboardRemoveItemTooltip,
+                          onPressed: () => ref.read(fileClipboardProvider.notifier).removeByPaths([item.path]),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+            child: SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: dalxAccent,
+                  disabledBackgroundColor: Colors.white12,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+                onPressed: (selectedCount == 0 || widget.currentPath == null)
+                    ? null
+                    : () {
+                        final selectedItems = items.where((i) => _checkedPaths.contains(i.path));
+                        final copyPaths = selectedItems.where((i) => !i.isCut).map((i) => i.path).toList();
+                        final movePaths = selectedItems.where((i) => i.isCut).map((i) => i.path).toList();
+                        widget.onPaste(copyPaths, movePaths);
+                      },
+                child: Text(
+                  selectedCount > 0 ? strings.clipboardPasteHereCount(selectedCount) : strings.clipboardPasteHereEmpty,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
